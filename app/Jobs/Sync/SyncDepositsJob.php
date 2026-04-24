@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Services\MatchTrader\Client;
 use App\Services\Normalizer\EmailNormalizer;
 use App\Services\Pipeline\Classifier;
+use App\Services\Transaction\CategoryClassifier;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -163,6 +164,13 @@ class SyncDepositsJob implements ShouldQueue
                     continue;
                 }
 
+                $category = CategoryClassifier::classify(
+                    type:        'DEPOSIT',
+                    status:      'DONE',
+                    gatewayName: $gatewayInfo['name'] ?? null,
+                    offerName:   $offer?->name,
+                );
+
                 $transaction = Transaction::create([
                     'person_id'            => $person->id,
                     'trading_account_id'   => $tradingAcc?->id,
@@ -176,6 +184,7 @@ class SyncDepositsJob implements ShouldQueue
                     'occurred_at'          => \Carbon\Carbon::parse($raw['created'] ?? now())->toIso8601String(),
                     'synced_at'            => now()->toIso8601String(),
                     'pipeline'             => $pipeline,
+                    'category'             => $category,
                 ]);
 
                 $amountUsd = number_format($amountCents / 100, 2);
