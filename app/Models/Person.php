@@ -37,6 +37,8 @@ class Person extends Model
         'notes_contacted',
         'duplicate_of_person_id',
         'mtr_last_synced_at',
+        'mtr_created_at',
+        'mtr_updated_at',
     ];
 
     protected function casts(): array
@@ -45,6 +47,8 @@ class Person extends Model
             'became_active_client_at' => 'datetime',
             'last_online_at'          => 'datetime',
             'mtr_last_synced_at'      => 'datetime',
+            'mtr_created_at'          => 'datetime',
+            'mtr_updated_at'          => 'datetime',
             'notes_contacted'         => 'boolean',
         ];
     }

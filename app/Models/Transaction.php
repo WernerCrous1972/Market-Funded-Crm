@@ -34,6 +34,7 @@ class Transaction extends Model
         'occurred_at',
         'synced_at',
         'pipeline',
+        'category',
     ];
 
     protected function casts(): array
