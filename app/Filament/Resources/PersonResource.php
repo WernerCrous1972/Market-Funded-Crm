@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PersonResource\Pages;
+use App\Filament\Resources\PersonResource\RelationManagers\TradingAccountsRelationManager;
+use App\Filament\Resources\PersonResource\RelationManagers\TransactionsRelationManager;
 use App\Models\Person;
 use Filament\Forms\Form;
 use Filament\Infolists\Components\Grid;
-use Filament\Infolists\Components\IconEntry;
-use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -115,33 +115,6 @@ class PersonResource extends Resource
                     ]),
                 ]),
 
-            Section::make('Trading Accounts')
-                ->schema([
-                    RepeatableEntry::make('tradingAccounts')
-                        ->label('')
-                        ->schema([
-                            TextEntry::make('mtr_login')
-                                ->label('Login')
-                                ->copyable()
-                                ->placeholder('—'),
-                            TextEntry::make('offer.name')
-                                ->label('Offer')
-                                ->placeholder('—'),
-                            TextEntry::make('pipeline')
-                                ->badge()
-                                ->color(fn (string $state) => match ($state) {
-                                    'MFU_CAPITAL' => 'primary',
-                                    'MFU_ACADEMY' => 'warning',
-                                    'MFU_MARKETS' => 'success',
-                                    default        => 'gray',
-                                }),
-                            IconEntry::make('is_active')
-                                ->label('Active')
-                                ->boolean(),
-                        ])
-                        ->columns(4),
-                ])
-                ->collapsible(),
         ]);
     }
 
@@ -269,7 +242,10 @@ class PersonResource extends Resource
 
     public static function getRelations(): array
     {
-        return [];
+        return [
+            TradingAccountsRelationManager::class,
+            TransactionsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array

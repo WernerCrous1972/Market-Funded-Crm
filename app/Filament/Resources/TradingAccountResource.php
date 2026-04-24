@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TradingAccountResource\Pages;
+use App\Filament\Resources\TradingAccountResource\RelationManagers\TransactionsRelationManager;
 use App\Models\TradingAccount;
 use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\IconEntry;
-use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -69,39 +69,6 @@ class TradingAccountResource extends Resource
                     ]),
                 ]),
 
-            Section::make('Transactions')
-                ->schema([
-                    RepeatableEntry::make('transactions')
-                        ->label('')
-                        ->schema([
-                            TextEntry::make('occurred_at')
-                                ->label('Date')
-                                ->dateTime('d M Y H:i'),
-                            TextEntry::make('type')
-                                ->badge()
-                                ->color(fn (string $state) => match ($state) {
-                                    'DEPOSIT'    => 'success',
-                                    'WITHDRAWAL' => 'danger',
-                                    default      => 'gray',
-                                }),
-                            TextEntry::make('amount_usd')
-                                ->label('Amount (USD)')
-                                ->money('USD'),
-                            TextEntry::make('gateway_name')
-                                ->label('Gateway')
-                                ->placeholder('—'),
-                            TextEntry::make('status')
-                                ->badge()
-                                ->color(fn (string $state) => match ($state) {
-                                    'DONE'    => 'success',
-                                    'PENDING' => 'warning',
-                                    'FAILED'  => 'danger',
-                                    default   => 'gray',
-                                }),
-                        ])
-                        ->columns(5),
-                ])
-                ->collapsible(),
         ]);
     }
 
@@ -171,7 +138,9 @@ class TradingAccountResource extends Resource
 
     public static function getRelations(): array
     {
-        return [];
+        return [
+            TransactionsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array
