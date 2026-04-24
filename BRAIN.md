@@ -37,14 +37,41 @@ The MTR instance is shared across many IB partners. Only import data from Market
 - Market Funded
 - QuickTrade
 
-**EXCLUDE these branches** (do not import contacts or transactions from):
+**The sync uses an inclusion list, not an exclusion list.** Only branches explicitly listed in `config/matchtrader.php` under `included_branches` are imported. Every other branch on the MTR instance is automatically excluded — no action required when new unrelated branches appear.
+
+**INCLUDE (synced):**
+- Market Funded
+- QuickTrade
+
+If a new branch appears in MTR that should be included, add it to `config/matchtrader.php` under `included_branches` — not to an exclusion list.
+
+**Not included — observed at Phase 1 completion (2026-04-24), 24 branches:**
+- Alpha Forex Trading
 - ATY Markets
 - Africa Markets
 - EarniMax
+- Ego Markets
+- eSwatini
+- Fav X Capital
+- Forex Evolution
+- Funding Frontier
 - Global Forex Brokers
+- Henderson and Henderson
 - Imali Markets
-- The Magasa Group
 - Infinity Funded
+- Introducing Broker Academy
+- Kript Capital
+- MATI Trader
+- MTT-test
+- NO Withdrawal Branch
+- PulseTrade
+- Smart Online Trader
+- The Magasa Group
+- Trade With Chantel
+- Ultimate Money Concepts
+- Zimbabwe
+
+This list is a snapshot for reference only — it does not drive any filtering logic.
 
 Branch filtering is applied at the account level (by `accountConfiguration.branchUuid`, resolved against the `branches` table) and at the deposit/withdrawal level (by `accountInfo.branchUuid`).
 
