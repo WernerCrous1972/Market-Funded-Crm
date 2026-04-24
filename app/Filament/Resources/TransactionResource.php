@@ -7,6 +7,10 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TransactionResource\Pages;
 use App\Models\Transaction;
 use Filament\Forms\Form;
+use Filament\Infolists\Components\Grid;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
@@ -26,6 +30,85 @@ class TransactionResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([]);
+    }
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            Section::make('Transaction Details')
+                ->schema([
+                    Grid::make(2)->schema([
+                        TextEntry::make('person.full_name')
+                            ->label('Person')
+                            ->url(fn (Transaction $record): string =>
+                                PersonResource::getUrl('view', ['record' => $record->person_id])
+                            ),
+                        TextEntry::make('type')
+                            ->badge()
+                            ->color(fn (string $state) => match ($state) {
+                                'DEPOSIT'    => 'success',
+                                'WITHDRAWAL' => 'danger',
+                                default      => 'gray',
+                            }),
+                        TextEntry::make('amount_usd')
+                            ->label('Amount (USD)')
+                            ->money('USD'),
+                        TextEntry::make('currency'),
+                        TextEntry::make('status')
+                            ->badge()
+                            ->color(fn (string $state) => match ($state) {
+                                'DONE'    => 'success',
+                                'PENDING' => 'warning',
+                                'FAILED'  => 'danger',
+                                default   => 'gray',
+                            }),
+                        TextEntry::make('pipeline')
+                            ->badge()
+                            ->color(fn (string $state) => match ($state) {
+                                'MFU_CAPITAL' => 'primary',
+                                'MFU_ACADEMY' => 'warning',
+                                'MFU_MARKETS' => 'success',
+                                default        => 'gray',
+                            })
+                            ->placeholder('—'),
+                        TextEntry::make('gateway_name')
+                            ->label('Gateway')
+                            ->placeholder('—'),
+                        TextEntry::make('remark')
+                            ->placeholder('—'),
+                        TextEntry::make('occurred_at')
+                            ->label('Occurred At')
+                            ->dateTime('d M Y H:i'),
+                        TextEntry::make('synced_at')
+                            ->label('Synced At')
+                            ->dateTime('d M Y H:i'),
+                        TextEntry::make('mtr_transaction_uuid')
+                            ->label('MTR Transaction UUID')
+                            ->copyable()
+                            ->columnSpanFull(),
+                    ]),
+                ]),
+
+            Section::make('Trading Account')
+                ->schema([
+                    Grid::make(2)->schema([
+                        TextEntry::make('tradingAccount.mtr_login')
+                            ->label('Login')
+                            ->placeholder('—'),
+                        TextEntry::make('tradingAccount.pipeline')
+                            ->label('Pipeline')
+                            ->badge()
+                            ->color(fn (?string $state) => match ($state) {
+                                'MFU_CAPITAL' => 'primary',
+                                'MFU_ACADEMY' => 'warning',
+                                'MFU_MARKETS' => 'success',
+                                default        => 'gray',
+                            })
+                            ->placeholder('—'),
+                    ]),
+                ])
+                ->collapsible(),
+        ]);
     }
 
     public static function table(Table $table): Table
@@ -111,6 +194,7 @@ class TransactionResource extends Resource
     {
         return [
             'index' => Pages\ListTransactions::route('/'),
+            'view'  => Pages\ViewTransaction::route('/{record}'),
         ];
     }
 

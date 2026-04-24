@@ -7,6 +7,12 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\PersonResource\Pages;
 use App\Models\Person;
 use Filament\Forms\Form;
+use Filament\Infolists\Components\Grid;
+use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
@@ -27,6 +33,116 @@ class PersonResource extends Resource
     {
         // Phase 1: read-only. No create/edit form needed yet.
         return $form->schema([]);
+    }
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            Section::make('Contact Details')
+                ->schema([
+                    Grid::make(2)->schema([
+                        TextEntry::make('full_name')
+                            ->label('Name'),
+                        TextEntry::make('contact_type')
+                            ->label('Type')
+                            ->badge()
+                            ->color(fn (string $state) => match ($state) {
+                                'CLIENT' => 'success',
+                                'LEAD'   => 'warning',
+                                default  => 'gray',
+                            }),
+                        TextEntry::make('email')
+                            ->copyable()
+                            ->icon('heroicon-o-envelope'),
+                        TextEntry::make('phone_e164')
+                            ->label('Phone')
+                            ->copyable()
+                            ->placeholder('—'),
+                        TextEntry::make('country')
+                            ->placeholder('—'),
+                        TextEntry::make('lead_status')
+                            ->label('Lead Status')
+                            ->placeholder('—'),
+                        TextEntry::make('lead_source')
+                            ->label('Lead Source')
+                            ->placeholder('—'),
+                        TextEntry::make('affiliate')
+                            ->placeholder('—'),
+                    ]),
+                ]),
+
+            Section::make('MTR Details')
+                ->schema([
+                    Grid::make(2)->schema([
+                        TextEntry::make('branch')
+                            ->placeholder('—'),
+                        TextEntry::make('account_manager')
+                            ->label('Account Manager')
+                            ->placeholder('—'),
+                        TextEntry::make('became_active_client_at')
+                            ->label('Client Since')
+                            ->dateTime('d M Y')
+                            ->placeholder('—'),
+                        TextEntry::make('last_online_at')
+                            ->label('Last Online')
+                            ->dateTime('d M Y H:i')
+                            ->placeholder('—'),
+                        TextEntry::make('mtr_last_synced_at')
+                            ->label('Last Synced')
+                            ->since()
+                            ->placeholder('—'),
+                    ]),
+                ]),
+
+            Section::make('Financials')
+                ->schema([
+                    Grid::make(3)->schema([
+                        TextEntry::make('total_deposits')
+                            ->label('Total Deposits')
+                            ->state(fn (Person $record): string =>
+                                '$' . number_format($record->total_deposits_cents / 100, 2)
+                            ),
+                        TextEntry::make('total_withdrawals')
+                            ->label('Total Withdrawals')
+                            ->state(fn (Person $record): string =>
+                                '$' . number_format($record->total_withdrawals_cents / 100, 2)
+                            ),
+                        TextEntry::make('net_deposits')
+                            ->label('Net Deposits')
+                            ->state(fn (Person $record): string =>
+                                '$' . number_format($record->net_deposits_cents / 100, 2)
+                            ),
+                    ]),
+                ]),
+
+            Section::make('Trading Accounts')
+                ->schema([
+                    RepeatableEntry::make('tradingAccounts')
+                        ->label('')
+                        ->schema([
+                            TextEntry::make('mtr_login')
+                                ->label('Login')
+                                ->copyable()
+                                ->placeholder('—'),
+                            TextEntry::make('offer.name')
+                                ->label('Offer')
+                                ->placeholder('—'),
+                            TextEntry::make('pipeline')
+                                ->badge()
+                                ->color(fn (string $state) => match ($state) {
+                                    'MFU_CAPITAL' => 'primary',
+                                    'MFU_ACADEMY' => 'warning',
+                                    'MFU_MARKETS' => 'success',
+                                    default        => 'gray',
+                                }),
+                            IconEntry::make('is_active')
+                                ->label('Active')
+                                ->boolean(),
+                        ])
+                        ->columns(4),
+                ])
+                ->collapsible(),
+        ]);
     }
 
     public static function table(Table $table): Table

@@ -6,6 +6,12 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\TradingAccountResource\Pages;
 use App\Models\TradingAccount;
+use Filament\Infolists\Components\Grid;
+use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
@@ -19,6 +25,85 @@ class TradingAccountResource extends Resource
     protected static ?string $navigationLabel = 'Trading Accounts';
     protected static ?string $navigationGroup = 'CRM';
     protected static ?int $navigationSort      = 2;
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            Section::make('Account Details')
+                ->schema([
+                    Grid::make(2)->schema([
+                        TextEntry::make('person.full_name')
+                            ->label('Person')
+                            ->url(fn (TradingAccount $record): string =>
+                                PersonResource::getUrl('view', ['record' => $record->person_id])
+                            ),
+                        TextEntry::make('mtr_login')
+                            ->label('Login')
+                            ->copyable()
+                            ->placeholder('—'),
+                        TextEntry::make('offer.name')
+                            ->label('Offer')
+                            ->placeholder('—'),
+                        TextEntry::make('pipeline')
+                            ->badge()
+                            ->color(fn (string $state) => match ($state) {
+                                'MFU_CAPITAL' => 'primary',
+                                'MFU_ACADEMY' => 'warning',
+                                'MFU_MARKETS' => 'success',
+                                default        => 'gray',
+                            }),
+                        IconEntry::make('is_demo')
+                            ->label('Demo Account')
+                            ->boolean(),
+                        IconEntry::make('is_active')
+                            ->label('Active')
+                            ->boolean(),
+                        TextEntry::make('opened_at')
+                            ->label('Opened')
+                            ->date('d M Y')
+                            ->placeholder('—'),
+                        TextEntry::make('mtr_account_uuid')
+                            ->label('MTR Account UUID')
+                            ->copyable()
+                            ->columnSpanFull(),
+                    ]),
+                ]),
+
+            Section::make('Transactions')
+                ->schema([
+                    RepeatableEntry::make('transactions')
+                        ->label('')
+                        ->schema([
+                            TextEntry::make('occurred_at')
+                                ->label('Date')
+                                ->dateTime('d M Y H:i'),
+                            TextEntry::make('type')
+                                ->badge()
+                                ->color(fn (string $state) => match ($state) {
+                                    'DEPOSIT'    => 'success',
+                                    'WITHDRAWAL' => 'danger',
+                                    default      => 'gray',
+                                }),
+                            TextEntry::make('amount_usd')
+                                ->label('Amount (USD)')
+                                ->money('USD'),
+                            TextEntry::make('gateway_name')
+                                ->label('Gateway')
+                                ->placeholder('—'),
+                            TextEntry::make('status')
+                                ->badge()
+                                ->color(fn (string $state) => match ($state) {
+                                    'DONE'    => 'success',
+                                    'PENDING' => 'warning',
+                                    'FAILED'  => 'danger',
+                                    default   => 'gray',
+                                }),
+                        ])
+                        ->columns(5),
+                ])
+                ->collapsible(),
+        ]);
+    }
 
     public static function table(Table $table): Table
     {
