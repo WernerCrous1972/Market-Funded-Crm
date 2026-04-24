@@ -62,6 +62,16 @@ class TransactionResource extends Resource
                                 'FAILED'  => 'danger',
                                 default   => 'gray',
                             }),
+                        TextEntry::make('category')
+                            ->badge()
+                            ->color(fn (string $state) => match ($state) {
+                                'EXTERNAL_DEPOSIT'    => 'success',
+                                'EXTERNAL_WITHDRAWAL' => 'danger',
+                                'CHALLENGE_PURCHASE'  => 'primary',
+                                'CHALLENGE_REFUND'    => 'warning',
+                                'INTERNAL_TRANSFER'   => 'gray',
+                                default               => 'gray',
+                            }),
                         TextEntry::make('pipeline')
                             ->badge()
                             ->color(fn (string $state) => match ($state) {
@@ -146,13 +156,23 @@ class TransactionResource extends Resource
                 Tables\Columns\BadgeColumn::make('status')
                     ->colors(['success' => 'DONE', 'warning' => 'PENDING', 'danger' => 'FAILED']),
 
+                Tables\Columns\BadgeColumn::make('category')
+                    ->colors([
+                        'success' => 'EXTERNAL_DEPOSIT',
+                        'danger'  => 'EXTERNAL_WITHDRAWAL',
+                        'primary' => 'CHALLENGE_PURCHASE',
+                        'warning' => 'CHALLENGE_REFUND',
+                        'gray'    => 'INTERNAL_TRANSFER',
+                    ]),
+
                 Tables\Columns\BadgeColumn::make('pipeline')
                     ->colors([
                         'primary' => 'MFU_CAPITAL',
                         'success' => 'MFU_MARKETS',
                         'warning' => 'MFU_ACADEMY',
                     ])
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('occurred_at', 'desc')
             ->filters([
@@ -161,6 +181,17 @@ class TransactionResource extends Resource
 
                 SelectFilter::make('status')
                     ->options(['DONE' => 'Done', 'PENDING' => 'Pending', 'FAILED' => 'Failed']),
+
+                SelectFilter::make('category')
+                    ->label('Category')
+                    ->options([
+                        'EXTERNAL_DEPOSIT'    => 'External Deposit',
+                        'EXTERNAL_WITHDRAWAL' => 'External Withdrawal',
+                        'CHALLENGE_PURCHASE'  => 'Challenge Purchase',
+                        'CHALLENGE_REFUND'    => 'Challenge Refund',
+                        'INTERNAL_TRANSFER'   => 'Internal Transfer',
+                        'UNCLASSIFIED'        => 'Unclassified',
+                    ]),
 
                 SelectFilter::make('pipeline')
                     ->options([

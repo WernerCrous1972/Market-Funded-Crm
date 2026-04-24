@@ -96,14 +96,14 @@ class PersonResource extends Resource
 
             Section::make('Financials')
                 ->schema([
-                    Grid::make(3)->schema([
+                    Grid::make(4)->schema([
                         TextEntry::make('total_deposits')
-                            ->label('Total Deposits')
+                            ->label('External Deposits')
                             ->state(fn (Person $record): string =>
                                 '$' . number_format($record->total_deposits_cents / 100, 2)
                             ),
                         TextEntry::make('total_withdrawals')
-                            ->label('Total Withdrawals')
+                            ->label('External Withdrawals')
                             ->state(fn (Person $record): string =>
                                 '$' . number_format($record->total_withdrawals_cents / 100, 2)
                             ),
@@ -111,6 +111,11 @@ class PersonResource extends Resource
                             ->label('Net Deposits')
                             ->state(fn (Person $record): string =>
                                 '$' . number_format($record->net_deposits_cents / 100, 2)
+                            ),
+                        TextEntry::make('total_challenge_purchases')
+                            ->label('Challenge Purchases')
+                            ->state(fn (Person $record): string =>
+                                '$' . number_format($record->total_challenge_purchases_cents / 100, 2)
                             ),
                     ]),
                 ]),

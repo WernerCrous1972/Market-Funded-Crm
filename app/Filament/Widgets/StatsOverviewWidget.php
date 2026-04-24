@@ -23,19 +23,24 @@ class StatsOverviewWidget extends BaseWidget
             ->where('created_at', '>=', today())
             ->count();
 
-        $depositsAllTime = Transaction::deposits()->done()->sum('amount_cents');
-        $depositsThisMonth = Transaction::deposits()->done()
-            ->where('occurred_at', '>=', now()->startOfMonth())
-            ->sum('amount_cents');
+        // ── Category-aware financials (excludes internal transfers & challenge activity) ──
+        $extDepAllTime   = Transaction::where('category', 'EXTERNAL_DEPOSIT')->sum('amount_cents');
+        $extDepMonth     = Transaction::where('category', 'EXTERNAL_DEPOSIT')
+            ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
 
-        $withdrawalsAllTime = Transaction::withdrawals()->done()->sum('amount_cents');
-        $withdrawalsThisMonth = Transaction::withdrawals()->done()
-            ->where('occurred_at', '>=', now()->startOfMonth())
-            ->sum('amount_cents');
+        $extWdAllTime    = Transaction::where('category', 'EXTERNAL_WITHDRAWAL')->sum('amount_cents');
+        $extWdMonth      = Transaction::where('category', 'EXTERNAL_WITHDRAWAL')
+            ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
 
-        $newDepositsToday = Transaction::deposits()->done()
-            ->where('occurred_at', '>=', today())
-            ->count();
+        $challengeAllTime = Transaction::where('category', 'CHALLENGE_PURCHASE')->sum('amount_cents');
+        $challengeMonth   = Transaction::where('category', 'CHALLENGE_PURCHASE')
+            ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
+
+        $internalMonth   = Transaction::where('category', 'INTERNAL_TRANSFER')
+            ->where('occurred_at', '>=', now()->startOfMonth())->count();
+
+        $newExtDepToday  = Transaction::where('category', 'EXTERNAL_DEPOSIT')
+            ->where('occurred_at', '>=', today())->count();
 
         return [
             Stat::make('Total Contacts', number_format($totalPeople))
@@ -48,24 +53,35 @@ class StatsOverviewWidget extends BaseWidget
                 ->icon('heroicon-o-user-plus')
                 ->color('warning'),
 
-            Stat::make('New Deposits Today', number_format($newDepositsToday))
-                ->description('Transactions with occurred_at = today')
+            Stat::make('New Deposits Today', number_format($newExtDepToday))
+                ->description('External deposits with occurred_at = today')
                 ->icon('heroicon-o-arrow-trending-up')
                 ->color('success'),
 
-            Stat::make('Deposits This Month', '$' . number_format($depositsThisMonth / 100, 0))
-                ->description('All time: $' . number_format($depositsAllTime / 100, 0))
+            Stat::make('Deposits This Month', '$' . number_format($extDepMonth / 100, 0))
+                ->description('External only · All time: $' . number_format($extDepAllTime / 100, 0))
                 ->icon('heroicon-o-banknotes')
                 ->color('success'),
 
-            Stat::make('Withdrawals This Month', '$' . number_format($withdrawalsThisMonth / 100, 0))
-                ->description('All time: $' . number_format($withdrawalsAllTime / 100, 0))
+            Stat::make('Withdrawals This Month', '$' . number_format($extWdMonth / 100, 0))
+                ->description('External only · All time: $' . number_format($extWdAllTime / 100, 0))
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('danger'),
 
-            Stat::make('Net Deposits (Month)', '$' . number_format(($depositsThisMonth - $withdrawalsThisMonth) / 100, 0))
+            Stat::make('Net Deposits (Month)', '$' . number_format(($extDepMonth - $extWdMonth) / 100, 0))
+                ->description('EXTERNAL_DEPOSIT − EXTERNAL_WITHDRAWAL')
                 ->icon('heroicon-o-scale')
                 ->color('primary'),
+
+            Stat::make('Challenge Sales (Month)', '$' . number_format($challengeMonth / 100, 0))
+                ->description('All time: $' . number_format($challengeAllTime / 100, 0))
+                ->icon('heroicon-o-trophy')
+                ->color('warning'),
+
+            Stat::make('Internal Transfers (Month)', number_format($internalMonth))
+                ->description('Wallet movements — not real cashflow')
+                ->icon('heroicon-o-arrows-right-left')
+                ->color('gray'),
         ];
     }
 }

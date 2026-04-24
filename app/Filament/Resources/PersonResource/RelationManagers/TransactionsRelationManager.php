@@ -47,13 +47,14 @@ class TransactionsRelationManager extends RelationManager
                         'danger'  => 'FAILED',
                     ]),
 
-                Tables\Columns\BadgeColumn::make('pipeline')
+                Tables\Columns\BadgeColumn::make('category')
                     ->colors([
-                        'primary' => 'MFU_CAPITAL',
-                        'success' => 'MFU_MARKETS',
-                        'warning' => 'MFU_ACADEMY',
-                    ])
-                    ->placeholder('—'),
+                        'success' => 'EXTERNAL_DEPOSIT',
+                        'danger'  => 'EXTERNAL_WITHDRAWAL',
+                        'primary' => 'CHALLENGE_PURCHASE',
+                        'warning' => 'CHALLENGE_REFUND',
+                        'gray'    => 'INTERNAL_TRANSFER',
+                    ]),
             ])
             ->defaultSort('occurred_at', 'desc')
             ->paginated([20, 50, 100])

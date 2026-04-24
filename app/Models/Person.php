@@ -136,22 +136,36 @@ class Person extends Model
     public function getTotalDepositsCentsAttribute(): int
     {
         return (int) $this->transactions()
-            ->where('type', 'DEPOSIT')
-            ->where('status', 'DONE')
+            ->where('category', 'EXTERNAL_DEPOSIT')
             ->sum('amount_cents');
     }
 
     public function getTotalWithdrawalsCentsAttribute(): int
     {
         return (int) $this->transactions()
-            ->where('type', 'WITHDRAWAL')
-            ->where('status', 'DONE')
+            ->where('category', 'EXTERNAL_WITHDRAWAL')
+            ->sum('amount_cents');
+    }
+
+    public function getTotalChallengePurchasesCentsAttribute(): int
+    {
+        return (int) $this->transactions()
+            ->where('category', 'CHALLENGE_PURCHASE')
             ->sum('amount_cents');
     }
 
     public function getNetDepositsCentsAttribute(): int
     {
         return $this->total_deposits_cents - $this->total_withdrawals_cents;
+    }
+
+    public function getLastExternalDepositAtAttribute(): ?\Carbon\Carbon
+    {
+        $occurred = $this->transactions()
+            ->where('category', 'EXTERNAL_DEPOSIT')
+            ->max('occurred_at');
+
+        return $occurred ? \Carbon\Carbon::parse($occurred) : null;
     }
 
     public function getDaysSinceLastLoginAttribute(): ?int
