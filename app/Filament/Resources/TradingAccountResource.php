@@ -76,6 +76,12 @@ class TradingAccountResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('opened_at')
+                    ->label('Opened')
+                    ->date('d M Y')
+                    ->sortable()
+                    ->placeholder('—'),
+
                 Tables\Columns\TextColumn::make('person.full_name')
                     ->label('Person')
                     ->searchable(['people.first_name', 'people.last_name'])
@@ -116,7 +122,7 @@ class TradingAccountResource extends Resource
                     ->sortable()
                     ->placeholder('—'),
             ])
-            ->defaultSort('opened_at', 'desc')
+            ->defaultSort('opened_at', 'desc')  // explicit — opened_at now first column
             ->filters([
                 SelectFilter::make('pipeline')
                     ->options([

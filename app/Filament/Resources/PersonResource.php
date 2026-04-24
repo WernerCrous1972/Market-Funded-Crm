@@ -94,6 +94,54 @@ class PersonResource extends Resource
                     ]),
                 ]),
 
+            Section::make('Activity Timeline')
+                ->schema([
+                    Grid::make(2)->schema([
+                        TextEntry::make('mtr_created_at')
+                            ->label('MTR Created')
+                            ->dateTime('d M Y, H:i')
+                            ->placeholder('—'),
+                        TextEntry::make('mtr_updated_at')
+                            ->label('MTR Updated')
+                            ->dateTime('d M Y, H:i')
+                            ->placeholder('—'),
+                        TextEntry::make('last_external_deposit_at')
+                            ->label('Last Deposit')
+                            ->state(fn (Person $record): ?string =>
+                                $record->last_external_deposit_at?->format('d M Y, H:i')
+                            )
+                            ->placeholder('—'),
+                        TextEntry::make('last_online_at')
+                            ->label('Last Online')
+                            ->dateTime('d M Y, H:i')
+                            ->placeholder('—'),
+                        TextEntry::make('days_since_mtr_updated')
+                            ->label('Days Since Last Update')
+                            ->state(fn (Person $record): string =>
+                                self::formatDaysSince($record->mtr_updated_at)
+                            )
+                            ->color(fn (Person $record): string =>
+                                self::daysSinceColor($record->mtr_updated_at)
+                            ),
+                        TextEntry::make('days_since_last_deposit')
+                            ->label('Days Since Last Deposit')
+                            ->state(fn (Person $record): string =>
+                                self::formatDaysSince($record->last_external_deposit_at)
+                            )
+                            ->color(fn (Person $record): string =>
+                                self::daysSinceColor($record->last_external_deposit_at)
+                            ),
+                        TextEntry::make('days_since_last_online')
+                            ->label('Days Since Last Online')
+                            ->state(fn (Person $record): string =>
+                                self::formatDaysSince($record->last_online_at)
+                            )
+                            ->color(fn (Person $record): string =>
+                                self::daysSinceColor($record->last_online_at)
+                            ),
+                    ]),
+                ]),
+
             Section::make('Financials')
                 ->schema([
                     Grid::make(4)->schema([
@@ -127,6 +175,12 @@ class PersonResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('mtr_created_at')
+                    ->label('MTR Created')
+                    ->dateTime('d M Y')
+                    ->sortable()
+                    ->placeholder('—'),
+
                 Tables\Columns\TextColumn::make('full_name')
                     ->label('Name')
                     ->searchable(['first_name', 'last_name'])
@@ -184,7 +238,7 @@ class PersonResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->defaultSort('created_at', 'desc')
+            ->defaultSort('mtr_created_at', 'desc')
             ->filters([
                 SelectFilter::make('contact_type')
                     ->label('Type')
@@ -264,5 +318,37 @@ class PersonResource extends Resource
     public static function canCreate(): bool
     {
         return false; // Phase 1 is read-only
+    }
+
+    // ── "Days since" helpers ─────────────────────────────────────────────────
+
+    private static function formatDaysSince(?\Carbon\Carbon $date): string
+    {
+        if ($date === null) {
+            return '—';
+        }
+
+        $days = (int) $date->diffInDays(now());
+
+        return match (true) {
+            $days === 0 => 'Today',
+            $days === 1 => 'Yesterday',
+            default     => "{$days} days ago",
+        };
+    }
+
+    private static function daysSinceColor(?\Carbon\Carbon $date): string
+    {
+        if ($date === null) {
+            return 'gray';
+        }
+
+        $days = (int) $date->diffInDays(now());
+
+        return match (true) {
+            $days > 30 => 'danger',
+            $days > 14 => 'warning',
+            default    => 'success',
+        };
     }
 }
