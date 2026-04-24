@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Transaction Classification & Reporting Accuracy
+
+#### Schema
+- `transactions.category` VARCHAR(25) NOT NULL DEFAULT 'UNCLASSIFIED', indexed. Values: `EXTERNAL_DEPOSIT`, `EXTERNAL_WITHDRAWAL`, `CHALLENGE_PURCHASE`, `CHALLENGE_REFUND`, `INTERNAL_TRANSFER`, `UNCLASSIFIED`.
+- `people.mtr_created_at` / `people.mtr_updated_at` — timestamptz nullable, sourced from MTR `/v1/accounts` `created` / `updated` fields. `mtr_created_at` indexed.
+
+#### Services & tests
+- `App\Services\Transaction\CategoryClassifier` — classifies transactions by type, status, gateway name, and offer name. 17 Pest unit tests covering all branches.
+
+#### Sync
+- `SyncDepositsJob` / `SyncWithdrawalsJob`: `category` set at insert via `CategoryClassifier`. Transactions remain immutable.
+- `SyncAccountsJob`: `mtr_created_at` and `mtr_updated_at` populated on every upsert.
+
+#### Backfill commands
+- `backfill:transaction-categories` — classifies all existing transactions in chunks of 500. Idempotent. Prints breakdown table + UNCLASSIFIED analysis (highlights any DONE rows needing rule review). Live result: 5,766 rows, 0 UNCLASSIFIED.
+  - EXTERNAL_DEPOSIT: 3,578 (62.1%), EXTERNAL_WITHDRAWAL: 1,110 (19.3%), CHALLENGE_REFUND: 456 (7.9%), INTERNAL_TRANSFER: 622 (10.8%), CHALLENGE_PURCHASE: 0 (all pre-31 Mar format → accepted INTERNAL_TRANSFER).
+- `backfill:person-mtr-timestamps` — streams all MTR accounts and populates mtr_created_at / mtr_updated_at. Live result: 29,283 of 29,284 people updated (1 email mismatch).
+
+#### Dashboard widgets (category-aware, numbers corrected)
+- Deposits / Withdrawals This Month: now use `EXTERNAL_DEPOSIT` / `EXTERNAL_WITHDRAWAL` only. Before/after: deposits $643k → $594k all-time, withdrawals $339k → $230k all-time.
+- Net Deposits (Month): EXTERNAL_DEPOSIT − EXTERNAL_WITHDRAWAL only.
+- New widget: **Challenge Sales (Month)** — sum of `CHALLENGE_PURCHASE` + all-time footnote.
+- New widget: **Internal Transfers (Month)** — count of `INTERNAL_TRANSFER` (informational).
+
+#### Transactions list & infolist
+- New `Category` badge column (green/red/blue/orange/gray by category).
+- New `Category` filter with all 6 enum values.
+- `Pipeline` column moved to hidden-by-default (toggleable).
+
+#### Person detail view
+- Financials section: renamed to category-aware labels; new **Challenge Purchases** column.
+- New **Activity Timeline** section: MTR Created, MTR Updated, Last Deposit, Last Online, Days Since Last Update / Last Deposit / Last Online (Today / Yesterday / N days ago; orange >14d, red >30d).
+
+#### List columns
+- Contacts list: new first column **MTR Created** (sortable, default sort DESC).
+- Trading Accounts list: new first column **Opened** (sortable, default sort DESC).
+
 ### Fixed
 - `SyncAccountsJob`: removed erroneous `TradingAccount` upsert — the `/v1/accounts` endpoint returns CRM contact profiles only; no MT5/Match-Trader login or offer UUID is available, so any TradingAccount created from this data was a placeholder with a wrong UUID type. Trading accounts are now created exclusively by `SyncDepositsJob` and `SyncWithdrawalsJob` from `accountInfo.tradingAccount`.
 - `Pipeline\Classifier::classify()`: when `$offerName` is null but `$offerUuid` is present and not in the prop challenge set, now returns `MFU_MARKETS` (default live trading) instead of `UNCLASSIFIED`. `UNCLASSIFIED` is reserved for the case where both name and UUID are absent.

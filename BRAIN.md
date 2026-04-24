@@ -170,7 +170,76 @@ Numbers already prefixed with `27` and 11 digits → leave as-is.
 
 ---
 
-## 10. Data Integrity Rules
+## 10. Transaction Classification
+
+**This is the most important business rule in the CRM.** Without correct classification, deposit and withdrawal totals are inflated by internal wallet movements and challenge-related transfers that are not real client cashflow.
+
+### Category enum
+
+Every transaction has a `category` column (VARCHAR 25, NOT NULL, DEFAULT 'UNCLASSIFIED'):
+
+| Category | Meaning |
+|---|---|
+| `EXTERNAL_DEPOSIT` | Real client deposit via payment gateway (card, crypto, bank) |
+| `EXTERNAL_WITHDRAWAL` | Real client withdrawal via payment gateway |
+| `CHALLENGE_PURCHASE` | Prop challenge bought via internal wallet (post-31 Mar 2026 format) |
+| `CHALLENGE_REFUND` | Prop challenge refund via TurboTrade Challenge gateway |
+| `INTERNAL_TRANSFER` | Wallet movement between accounts — not real cashflow |
+| `UNCLASSIFIED` | Non-DONE status (PENDING/FAILED/REVERSED), or unrecognised pattern |
+
+Only `EXTERNAL_DEPOSIT` and `EXTERNAL_WITHDRAWAL` are counted as real business cashflow in all dashboard aggregations and Person-level financial totals.
+
+### The 31 March 2026 gateway changeover
+
+MTR changed how TurboTrade challenge activity is represented in the transaction feed on 31 March 2026:
+
+**Before 31 March 2026 (historical format):**
+- Challenge purchases appeared as deposits with gateway = `Internal Transfer`, no offer name
+- Challenge refunds appeared as withdrawals with gateway = `TurboTrade Challenge`
+
+**After 31 March 2026 (current format):**
+- Challenge purchases appear with gateway = `Internal Transfer` **AND** offer name containing a challenge keyword (e.g. `Evaluation_1_$5k TTR 3-Phase Challenge`)
+- Challenge refunds continue to use gateway = `TurboTrade Challenge`
+- Real internal transfers also use gateway = `Internal Transfer`
+
+### Classification rules (`App\Services\Transaction\CategoryClassifier`)
+
+```
+CHALLENGE_KEYWORDS = ['Instant Funded', 'Evaluation', 'Verification', 'Consistency']
+  (case-insensitive substring match on offer name)
+
+If status != DONE:
+  → UNCLASSIFIED
+
+If type = DEPOSIT and status = DONE:
+  If offer name contains any CHALLENGE_KEYWORD → CHALLENGE_PURCHASE
+  Else if gateway = 'Internal Transfer'        → INTERNAL_TRANSFER
+  Else                                         → EXTERNAL_DEPOSIT
+
+If type = WITHDRAWAL and status = DONE:
+  If gateway = 'TurboTrade Challenge'          → CHALLENGE_REFUND
+  Else if gateway = 'Internal Transfer'        → INTERNAL_TRANSFER
+  Else                                         → EXTERNAL_WITHDRAWAL
+```
+
+### Why Internal Transfer appears as three different things
+
+`Internal Transfer` as a gateway name can mean:
+1. **A real wallet-to-wallet transfer** between a client's own accounts (always INTERNAL_TRANSFER)
+2. **A pre-31-Mar-2026 challenge purchase** — indistinguishable from #1 because MTR did not attach offer name to these transactions (classified as INTERNAL_TRANSFER — **accepted ambiguity**)
+3. **A post-31-Mar-2026 challenge purchase** — identifiable because MTR now attaches the offer name (classified as CHALLENGE_PURCHASE)
+
+The pre-changeover ambiguity means that `CHALLENGE_PURCHASE` totals will be understated relative to the true historical figure. This is a known limitation and is documented here explicitly so future developers do not try to "fix" it by reclassifying the INTERNAL_TRANSFER bucket.
+
+### Gateways confirmed excluded from real cashflow (as of 2026-04-24 sync)
+
+See §5 for the full excluded gateway list. Additionally:
+- `Internal Transfer` — always a wallet movement or challenge purchase, never real cashflow
+- `TurboTrade Challenge` — always a challenge refund, never real cashflow
+
+---
+
+## 11. Data Integrity Rules
 
 - **All money** is stored as `bigint` in cents (multiply by 100 on write, divide by 100 on read). Never use floats.
 - **All timestamps** are `timestamptz` (PostgreSQL timezone-aware). App timezone is `Africa/Johannesburg`.
