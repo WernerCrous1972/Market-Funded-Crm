@@ -44,10 +44,12 @@ class StatsOverviewWidget extends BaseWidget
                 ->color('primary'),
 
             Stat::make('New Leads Today', number_format($newLeadsToday))
+                ->description('First seen in CRM today')
                 ->icon('heroicon-o-user-plus')
                 ->color('warning'),
 
             Stat::make('New Deposits Today', number_format($newDepositsToday))
+                ->description('Transactions with occurred_at = today')
                 ->icon('heroicon-o-arrow-trending-up')
                 ->color('success'),
 
