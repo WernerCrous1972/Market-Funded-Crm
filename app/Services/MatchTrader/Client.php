@@ -182,8 +182,9 @@ class Client
                 'size' => $pageSize,
             ]));
 
-            // Handle both {content: [...], totalElements: N} and {data: [...], total: N} shapes
-            $records = $response['content'] ?? $response['data'] ?? [];
+            // Handle paginated ({content:[…], totalElements:N}), data-wrapped ({data:[…], total:N}),
+            // and flat array responses (e.g. /v1/prop/challenges returns a bare JSON array)
+            $records = $response['content'] ?? $response['data'] ?? (array_is_list($response) ? $response : []);
 
             if ($total === null) {
                 $total = $response['totalElements'] ?? $response['total'] ?? count($records);
