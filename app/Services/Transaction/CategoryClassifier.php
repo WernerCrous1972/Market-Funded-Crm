@@ -22,14 +22,18 @@ namespace App\Services\Transaction;
  *   If status != DONE → UNCLASSIFIED
  *
  *   DEPOSIT + DONE:
- *     offer name contains challenge keyword AND our brand code → CHALLENGE_PURCHASE
- *     gateway = Internal Transfer                              → INTERNAL_TRANSFER
- *     otherwise                                               → EXTERNAL_DEPOSIT
+ *     offer name contains challenge keyword AND our brand code (case-sensitive) → CHALLENGE_PURCHASE
+ *     gateway = Internal Transfer                                               → INTERNAL_TRANSFER
+ *     otherwise                                                                → EXTERNAL_DEPOSIT
  *
  *   WITHDRAWAL + DONE:
- *     gateway = TurboTrade Challenge        → CHALLENGE_REFUND
- *     gateway = Internal Transfer           → INTERNAL_TRANSFER
- *     otherwise                             → EXTERNAL_WITHDRAWAL
+ *     gateway = TurboTrade Challenge:
+ *       offer contains our brand code (case-insensitive) → CHALLENGE_PURCHASE
+ *         (pre-April-2026 purchase: MTR booked these as wallet withdrawals)
+ *       otherwise                                        → CHALLENGE_REFUND
+ *         (affiliate brand challenge refund, or no offer name)
+ *     gateway = Internal Transfer                        → INTERNAL_TRANSFER
+ *     otherwise                                          → EXTERNAL_WITHDRAWAL
  *
  * Challenge keywords and brand codes are read from config/matchtrader.php so
  * that new brands can be added without touching this class.
@@ -68,7 +72,12 @@ class CategoryClassifier
 
         // WITHDRAWAL
         if ($gateway === 'turbotrade challenge') {
-            return 'CHALLENGE_REFUND';
+            // A TurboTrade Challenge withdrawal with our brand code in the offer
+            // is a pre-April-2026 challenge purchase — MTR booked these as
+            // wallet withdrawals before the gateway changeover.
+            return self::hasOurBrandCode($offerName)
+                ? 'CHALLENGE_PURCHASE'
+                : 'CHALLENGE_REFUND';
         }
 
         if ($gateway === 'internal transfer') {
@@ -96,6 +105,28 @@ class CategoryClassifier
 
         foreach (config('matchtrader.our_brand_codes', []) as $code) {
             if (str_contains($padded, ' ' . $code . ' ')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns true when the offer name contains one of our brand codes as a whole word.
+     * Used on the withdrawal side; matching is case-insensitive because historical
+     * offer names were not always consistently cased.
+     */
+    private static function hasOurBrandCode(?string $offerName): bool
+    {
+        if ($offerName === null || $offerName === '') {
+            return false;
+        }
+
+        $padded = ' ' . $offerName . ' ';
+
+        foreach (config('matchtrader.our_brand_codes', []) as $code) {
+            if (str_contains(strtolower($padded), ' ' . strtolower($code) . ' ')) {
                 return true;
             }
         }

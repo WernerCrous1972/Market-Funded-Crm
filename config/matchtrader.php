@@ -94,7 +94,8 @@ return [
     ],
 
     'our_brand_codes' => [
-        'TTR',   // QuickTrade / TurboTrade
+        'TTR',   // QuickTrade / TurboTrade (current naming, post-rebrand)
+        'QT',    // QuickTrade (legacy naming, pre-rebrand — same broker as TTR)
         'MFU',   // Market Funded
     ],
 ];

@@ -161,9 +161,47 @@ describe('CategoryClassifier', function () {
             ->toBe('INTERNAL_TRANSFER');
     });
 
-    // ── Challenge refunds ────────────────────────────────────────────────────
+    // ── Pre-April challenge purchases (TurboTrade Challenge withdrawal + our brand) ──
 
-    it('classifies TurboTrade Challenge withdrawal as CHALLENGE_REFUND', function () {
+    it('classifies TTR TurboTrade Challenge withdrawal as CHALLENGE_PURCHASE (pre-April purchase)', function () {
+        expect(CategoryClassifier::classify(
+            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge', 'Evaluation_1_$5k TTR 3-Phase Challenge'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('classifies MFU TurboTrade Challenge withdrawal as CHALLENGE_PURCHASE', function () {
+        expect(CategoryClassifier::classify(
+            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge', 'Instant Funded $10k MFU Plan'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('classifies QT TurboTrade Challenge withdrawal as CHALLENGE_PURCHASE (legacy brand)', function () {
+        expect(CategoryClassifier::classify(
+            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge', 'Evaluation $5k QT Challenge'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('brand matching on TurboTrade Challenge withdrawal is case-insensitive', function () {
+        expect(CategoryClassifier::classify(
+            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge', 'Evaluation_1_$5k ttr 3-Phase Challenge'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    // ── Challenge refunds (affiliate brand or no offer) ───────────────────────
+
+    it('classifies ATY TurboTrade Challenge withdrawal as CHALLENGE_REFUND (affiliate brand)', function () {
+        expect(CategoryClassifier::classify(
+            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge', 'Evaluation_1_$5k ATY 3-Phase Challenge'
+        ))->toBe('CHALLENGE_REFUND');
+    });
+
+    it('classifies GFB TurboTrade Challenge withdrawal as CHALLENGE_REFUND (affiliate brand)', function () {
+        expect(CategoryClassifier::classify(
+            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge', 'Evaluation_1_$5k GFB 3-Phase Challenge'
+        ))->toBe('CHALLENGE_REFUND');
+    });
+
+    it('TurboTrade Challenge withdrawal with null offer classifies as CHALLENGE_REFUND', function () {
         expect(CategoryClassifier::classify('WITHDRAWAL', 'DONE', 'TurboTrade Challenge', null))
             ->toBe('CHALLENGE_REFUND');
     });
