@@ -8,12 +8,12 @@ describe('CategoryClassifier', function () {
 
     // ── External deposits ────────────────────────────────────────────────────
 
-    it('classifies a card deposit as EXTERNAL_DEPOSIT', function () {
+    it('classifies a card deposit with no offer as EXTERNAL_DEPOSIT', function () {
         expect(CategoryClassifier::classify('DEPOSIT', 'DONE', 'Visa/Mastercard', null))
             ->toBe('EXTERNAL_DEPOSIT');
     });
 
-    it('classifies a USDT deposit as EXTERNAL_DEPOSIT', function () {
+    it('classifies a USDT deposit with no offer as EXTERNAL_DEPOSIT', function () {
         expect(CategoryClassifier::classify('DEPOSIT', 'DONE', 'USDT', null))
             ->toBe('EXTERNAL_DEPOSIT');
     });
@@ -30,49 +30,128 @@ describe('CategoryClassifier', function () {
             ->toBe('EXTERNAL_WITHDRAWAL');
     });
 
-    // ── Challenge purchases (post-31 March 2026 format) ──────────────────────
+    // ── Our challenge purchases — TTR brand ──────────────────────────────────
 
-    it('classifies Evaluation offer + Internal Transfer as CHALLENGE_PURCHASE', function () {
+    it('classifies TTR Evaluation offer + Internal Transfer as CHALLENGE_PURCHASE', function () {
         expect(CategoryClassifier::classify(
             'DEPOSIT', 'DONE', 'Internal Transfer', 'Evaluation_1_$5k TTR 3-Phase Challenge'
         ))->toBe('CHALLENGE_PURCHASE');
     });
 
-    it('classifies Instant Funded offer + Internal Transfer as CHALLENGE_PURCHASE', function () {
+    it('classifies TTR challenge paid by card as CHALLENGE_PURCHASE (offer name wins over gateway)', function () {
         expect(CategoryClassifier::classify(
-            'DEPOSIT', 'DONE', 'Internal Transfer', 'Instant Funded $10k Plan'
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Evaluation_1_$5k TTR 3-Phase Challenge'
         ))->toBe('CHALLENGE_PURCHASE');
     });
 
-    it('classifies Verification offer + Internal Transfer as CHALLENGE_PURCHASE', function () {
+    it('classifies TTR challenge paid by USDT as CHALLENGE_PURCHASE', function () {
         expect(CategoryClassifier::classify(
-            'DEPOSIT', 'DONE', 'Internal Transfer', 'Verification Phase $25k'
+            'DEPOSIT', 'DONE', 'USDT', 'Instant Funded $10k TTR Plan'
         ))->toBe('CHALLENGE_PURCHASE');
     });
 
-    it('classifies Consistency offer + Internal Transfer as CHALLENGE_PURCHASE', function () {
+    // ── Our challenge purchases — MFU brand ──────────────────────────────────
+
+    it('classifies MFU Instant Funded offer + Internal Transfer as CHALLENGE_PURCHASE', function () {
         expect(CategoryClassifier::classify(
-            'DEPOSIT', 'DONE', 'Internal Transfer', 'Consistency Challenge $15k'
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'Instant Funded $10k MFU Plan'
         ))->toBe('CHALLENGE_PURCHASE');
     });
 
-    it('keyword matching on offer name is case-insensitive', function () {
+    it('classifies MFU challenge paid by card as CHALLENGE_PURCHASE', function () {
         expect(CategoryClassifier::classify(
-            'DEPOSIT', 'DONE', 'Internal Transfer', 'EVALUATION_1_$5k ttr challenge'
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Verification Phase $25k MFU'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('classifies MFU Consistency offer as CHALLENGE_PURCHASE', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'Consistency Challenge $15k MFU'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('classifies MFU Verification offer as CHALLENGE_PURCHASE', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'Verification Phase $25k TTR'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('challenge keyword matching on offer name is case-insensitive', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'EVALUATION_1_$5k TTR challenge'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    // ── Affiliate brand challenges — must NOT be CHALLENGE_PURCHASE ──────────
+
+    it('classifies ATY Evaluation offer paid by card as EXTERNAL_DEPOSIT (affiliate brand)', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Evaluation_1_$5k ATY 3-Phase Challenge'
+        ))->toBe('EXTERNAL_DEPOSIT');
+    });
+
+    it('classifies SOT Evaluation + Internal Transfer as INTERNAL_TRANSFER (affiliate, falls through)', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'Evaluation_1_$5k SOT 3-Phase Challenge'
+        ))->toBe('INTERNAL_TRANSFER');
+    });
+
+    it('classifies EAR Instant Funded + card as EXTERNAL_DEPOSIT (affiliate brand)', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Instant Funded $10k EAR Plan'
+        ))->toBe('EXTERNAL_DEPOSIT');
+    });
+
+    it('classifies challenge offer with no brand code + Internal Transfer as INTERNAL_TRANSFER', function () {
+        // No brand code — falls through to gateway check
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'Evaluation $5k 3-Phase Challenge'
+        ))->toBe('INTERNAL_TRANSFER');
+    });
+
+    it('classifies challenge offer with no brand code + card as EXTERNAL_DEPOSIT', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Evaluation $5k 3-Phase Challenge'
+        ))->toBe('EXTERNAL_DEPOSIT');
+    });
+
+    // ── Brand code word-boundary tests ───────────────────────────────────────
+
+    it('MATI brand does not match MFU (substring is not a whole word)', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Evaluation_1_$5k MATI 3-Phase Challenge'
+        ))->toBe('EXTERNAL_DEPOSIT');
+    });
+
+    it('brand code matching is case-sensitive — lowercase ttr does not match TTR', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Visa/Mastercard', 'Evaluation_1_$5k ttr 3-Phase Challenge'
+        ))->toBe('EXTERNAL_DEPOSIT');
+    });
+
+    it('brand code matches at start of offer name', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'TTR Evaluation $5k'
+        ))->toBe('CHALLENGE_PURCHASE');
+    });
+
+    it('brand code matches at end of offer name', function () {
+        expect(CategoryClassifier::classify(
+            'DEPOSIT', 'DONE', 'Internal Transfer', 'Evaluation $5k TTR'
         ))->toBe('CHALLENGE_PURCHASE');
     });
 
     // ── Pre-31 March 2026 — historical ambiguity ─────────────────────────────
 
-    it('classifies pre-changeover challenge purchase as INTERNAL_TRANSFER (accepted ambiguity)', function () {
-        // Gateway = Internal Transfer, no offer name — indistinguishable from a real transfer
+    it('classifies pre-changeover challenge purchase (no offer name) as INTERNAL_TRANSFER', function () {
+        // Gateway = Internal Transfer, no offer name — indistinguishable from real transfer
         expect(CategoryClassifier::classify('DEPOSIT', 'DONE', 'Internal Transfer', null))
             ->toBe('INTERNAL_TRANSFER');
     });
 
     // ── Real internal transfers ──────────────────────────────────────────────
 
-    it('classifies a real internal transfer (deposit side, no challenge offer) as INTERNAL_TRANSFER', function () {
+    it('classifies a real internal transfer (deposit side, no offer) as INTERNAL_TRANSFER', function () {
         expect(CategoryClassifier::classify('DEPOSIT', 'DONE', 'Internal Transfer', null))
             ->toBe('INTERNAL_TRANSFER');
     });
@@ -89,7 +168,7 @@ describe('CategoryClassifier', function () {
             ->toBe('CHALLENGE_REFUND');
     });
 
-    it('gateway matching is case-insensitive', function () {
+    it('TurboTrade Challenge gateway matching is case-insensitive', function () {
         expect(CategoryClassifier::classify('WITHDRAWAL', 'DONE', 'turbotrade challenge', null))
             ->toBe('CHALLENGE_REFUND');
     });

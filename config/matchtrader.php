@@ -67,4 +67,34 @@ return [
         'mt5 transfer',
         'commission',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Transaction category classification
+    |--------------------------------------------------------------------------
+    |
+    | challenge_keywords — case-insensitive substrings matched against the
+    |   offer name. A match is necessary but not sufficient for CHALLENGE_PURCHASE.
+    |
+    | our_brand_codes — case-sensitive whole-word tokens (space-bounded) that
+    |   must ALSO appear in the offer name for a transaction to count as OUR
+    |   challenge revenue. Challenges under any other brand code belong to
+    |   affiliate brokers and must NOT classify as CHALLENGE_PURCHASE — they
+    |   fall through to EXTERNAL_DEPOSIT or INTERNAL_TRANSFER per gateway.
+    |   To add a new brand (e.g. after a rebrand), append here. Do NOT modify
+    |   the classifier class.
+    |
+    */
+
+    'challenge_keywords' => [
+        'Instant Funded',
+        'Evaluation',
+        'Verification',
+        'Consistency',
+    ],
+
+    'our_brand_codes' => [
+        'TTR',   // QuickTrade / TurboTrade
+        'MFU',   // Market Funded
+    ],
 ];

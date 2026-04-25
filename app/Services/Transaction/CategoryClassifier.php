@@ -22,25 +22,20 @@ namespace App\Services\Transaction;
  *   If status != DONE → UNCLASSIFIED
  *
  *   DEPOSIT + DONE:
- *     offer name contains challenge keyword → CHALLENGE_PURCHASE
- *     gateway = Internal Transfer           → INTERNAL_TRANSFER
- *     otherwise                             → EXTERNAL_DEPOSIT
+ *     offer name contains challenge keyword AND our brand code → CHALLENGE_PURCHASE
+ *     gateway = Internal Transfer                              → INTERNAL_TRANSFER
+ *     otherwise                                               → EXTERNAL_DEPOSIT
  *
  *   WITHDRAWAL + DONE:
  *     gateway = TurboTrade Challenge        → CHALLENGE_REFUND
  *     gateway = Internal Transfer           → INTERNAL_TRANSFER
  *     otherwise                             → EXTERNAL_WITHDRAWAL
+ *
+ * Challenge keywords and brand codes are read from config/matchtrader.php so
+ * that new brands can be added without touching this class.
  */
 class CategoryClassifier
 {
-    /** Case-insensitive keywords matched against the related offer name. */
-    private const CHALLENGE_KEYWORDS = [
-        'Instant Funded',
-        'Evaluation',
-        'Verification',
-        'Consistency',
-    ];
-
     /**
      * @param  string       $type        DEPOSIT or WITHDRAWAL
      * @param  string       $status      DONE, PENDING, FAILED, REVERSED, …
@@ -60,7 +55,7 @@ class CategoryClassifier
         $gateway = strtolower(trim($gatewayName ?? ''));
 
         if (strtoupper($type) === 'DEPOSIT') {
-            if ($offerName !== null && self::hasChallengeKeyword($offerName)) {
+            if ($offerName !== null && self::isOurChallenge($offerName)) {
                 return 'CHALLENGE_PURCHASE';
             }
 
@@ -83,11 +78,36 @@ class CategoryClassifier
         return 'EXTERNAL_WITHDRAWAL';
     }
 
+    /**
+     * Returns true when the offer name contains both a challenge keyword (case-insensitive)
+     * and one of our brand codes as a whole word (case-sensitive, space-bounded).
+     *
+     * Affiliate brokers share the same MTR instance and use the same challenge keywords but
+     * different brand codes (e.g. ATY, SOT, EAR). Those must NOT classify as CHALLENGE_PURCHASE.
+     */
+    private static function isOurChallenge(string $offerName): bool
+    {
+        if (!self::hasChallengeKeyword($offerName)) {
+            return false;
+        }
+
+        // Pad with spaces so we can match brand codes at start/end of string too
+        $padded = ' ' . $offerName . ' ';
+
+        foreach (config('matchtrader.our_brand_codes', []) as $code) {
+            if (str_contains($padded, ' ' . $code . ' ')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static function hasChallengeKeyword(string $offerName): bool
     {
         $lower = strtolower($offerName);
 
-        foreach (self::CHALLENGE_KEYWORDS as $keyword) {
+        foreach (config('matchtrader.challenge_keywords', []) as $keyword) {
             if (str_contains($lower, strtolower($keyword))) {
                 return true;
             }
