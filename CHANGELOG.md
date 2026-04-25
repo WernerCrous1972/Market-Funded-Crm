@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — QT Brand + Dual Challenge Classification Path
+
+#### Classifier
+- `QT` added to `our_brand_codes` in `config/matchtrader.php` (QuickTrade legacy naming, same broker as TTR).
+- New withdrawal-side rule: `TurboTrade Challenge` withdrawal + our brand code (TTR/QT/MFU, case-insensitive, whole-word) → `CHALLENGE_PURCHASE`. This correctly identifies pre-31-March-2026 challenge purchases, which MTR booked as wallet withdrawals. TurboTrade Challenge withdrawals with affiliate or unknown brand remain `CHALLENGE_REFUND`.
+- `CategoryClassifier::hasOurBrandCode()` added for the withdrawal side (case-insensitive, separate from the case-sensitive deposit-side `isOurChallenge()`).
+- 6 new tests (QT/MFU/TTR withdrawal → CHALLENGE_PURCHASE; ATY/GFB → CHALLENGE_REFUND; null offer → CHALLENGE_REFUND; case-insensitive match). Total: 35 classifier tests.
+
+#### Historical backfill
+- `backfill:full-history` command — fetches all deposits and withdrawals from MTR from a configurable start date (default 2025-03-01). Inserts new rows; skips existing. Exception: existing `CHALLENGE_REFUND` rows with no offer linkage (`trading_account_id = NULL`) are promoted to `CHALLENGE_PURCHASE` when the API provides an offer name that identifies them as our brand.
+- Run on 2026-04-25 covering 2025-03-20 → 2026-04-25: 20 new rows inserted, 447 reclassified. Final total: 5,786 transactions.
+
+#### Final category breakdown (2026-04-25)
+- EXTERNAL_DEPOSIT: 3,592 (62.1%)
+- EXTERNAL_WITHDRAWAL: 1,112 (19.2%)
+- INTERNAL_TRANSFER: 626 (10.8%)
+- CHALLENGE_PURCHASE: 447 (7.7%) — first meaningful all-time figure
+- CHALLENGE_REFUND: 9 (0.2%) — affiliate brand challenges only
+
 ### Added — Transaction Classification & Reporting Accuracy
 
 #### Schema

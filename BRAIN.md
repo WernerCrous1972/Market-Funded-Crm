@@ -182,60 +182,107 @@ Every transaction has a `category` column (VARCHAR 25, NOT NULL, DEFAULT 'UNCLAS
 |---|---|
 | `EXTERNAL_DEPOSIT` | Real client deposit via payment gateway (card, crypto, bank) |
 | `EXTERNAL_WITHDRAWAL` | Real client withdrawal via payment gateway |
-| `CHALLENGE_PURCHASE` | Prop challenge bought via internal wallet (post-31 Mar 2026 format) |
-| `CHALLENGE_REFUND` | Prop challenge refund via TurboTrade Challenge gateway |
+| `CHALLENGE_PURCHASE` | Prop challenge bought — post-31 Mar 2026: Internal Transfer deposit with offer name; pre-31 Mar 2026: TurboTrade Challenge withdrawal with our brand code |
+| `CHALLENGE_REFUND` | TurboTrade Challenge withdrawal with affiliate or unknown brand — not our revenue |
 | `INTERNAL_TRANSFER` | Wallet movement between accounts — not real cashflow |
 | `UNCLASSIFIED` | Non-DONE status (PENDING/FAILED/REVERSED), or unrecognised pattern |
 
 Only `EXTERNAL_DEPOSIT` and `EXTERNAL_WITHDRAWAL` are counted as real business cashflow in all dashboard aggregations and Person-level financial totals.
+
+### Brand codes (our brands only)
+
+These are the brands whose challenge transactions count as **our** revenue. Challenges under any other brand code (ATY, SOT, EAR, GFB, etc.) belong to affiliate brokers.
+
+| Code | Broker | Notes |
+|---|---|---|
+| `TTR` | QuickTrade / TurboTrade | Current naming convention (post-rebrand) |
+| `QT` | QuickTrade | Legacy naming convention (pre-rebrand) — same broker as TTR |
+| `MFU` | Market Funded | Market Funded prop challenge brand |
+
+Brand codes are stored in `config/matchtrader.php` under `our_brand_codes`. To add a new brand, append there — do NOT modify `CategoryClassifier`.
 
 ### The 31 March 2026 gateway changeover
 
 MTR changed how TurboTrade challenge activity is represented in the transaction feed on 31 March 2026:
 
 **Before 31 March 2026 (historical format):**
-- Challenge purchases appeared as deposits with gateway = `Internal Transfer`, no offer name
-- Challenge refunds appeared as withdrawals with gateway = `TurboTrade Challenge`
+- Challenge purchases appeared as **withdrawals** with gateway = `TurboTrade Challenge` and an offer name containing our brand code (TTR, QT, or MFU)
+- Challenge refunds for **affiliate** brands also used gateway = `TurboTrade Challenge` but with a different brand code — these are not our revenue
 
 **After 31 March 2026 (current format):**
-- Challenge purchases appear with gateway = `Internal Transfer` **AND** offer name containing a challenge keyword (e.g. `Evaluation_1_$5k TTR 3-Phase Challenge`)
+- Challenge purchases appear as **deposits** with gateway = `Internal Transfer` **AND** offer name containing a challenge keyword + our brand code
 - Challenge refunds continue to use gateway = `TurboTrade Challenge`
 - Real internal transfers also use gateway = `Internal Transfer`
 
-### Classification rules (`App\Services\Transaction\CategoryClassifier`)
+### Dual classification path
+
+`CHALLENGE_PURCHASE` is identified via two separate paths depending on era:
+
+**Post-31 Mar 2026 — deposit-side rule (offer name wins over gateway):**
+1. Transaction must be a DEPOSIT with status DONE
+2. Offer name must contain a challenge keyword (case-insensitive): `Instant Funded`, `Evaluation`, `Verification`, `Consistency`
+3. Offer name must also contain one of our brand codes as a whole word (case-sensitive): `TTR`, `QT`, `MFU`
+
+**Pre-31 Mar 2026 — withdrawal-side rule (TurboTrade Challenge gateway):**
+1. Transaction must be a WITHDRAWAL with status DONE
+2. Gateway must be `TurboTrade Challenge`
+3. Offer name must contain one of our brand codes as a whole word (case-insensitive)
+
+### Full classification rules (`App\Services\Transaction\CategoryClassifier`)
 
 ```
 CHALLENGE_KEYWORDS = ['Instant Funded', 'Evaluation', 'Verification', 'Consistency']
   (case-insensitive substring match on offer name)
 
+OUR_BRAND_CODES = ['TTR', 'QT', 'MFU']
+  (whole-word match; case-sensitive for deposits, case-insensitive for withdrawals)
+
 If status != DONE:
   → UNCLASSIFIED
 
 If type = DEPOSIT and status = DONE:
-  If offer name contains any CHALLENGE_KEYWORD → CHALLENGE_PURCHASE
-  Else if gateway = 'Internal Transfer'        → INTERNAL_TRANSFER
-  Else                                         → EXTERNAL_DEPOSIT
+  If offer name contains challenge keyword AND our brand code (case-sensitive) → CHALLENGE_PURCHASE
+  Else if gateway = 'Internal Transfer'                                        → INTERNAL_TRANSFER
+  Else                                                                         → EXTERNAL_DEPOSIT
 
 If type = WITHDRAWAL and status = DONE:
-  If gateway = 'TurboTrade Challenge'          → CHALLENGE_REFUND
-  Else if gateway = 'Internal Transfer'        → INTERNAL_TRANSFER
-  Else                                         → EXTERNAL_WITHDRAWAL
+  If gateway = 'TurboTrade Challenge':
+    If offer name contains our brand code (case-insensitive)  → CHALLENGE_PURCHASE
+    Else                                                      → CHALLENGE_REFUND
+  Else if gateway = 'Internal Transfer'                       → INTERNAL_TRANSFER
+  Else                                                        → EXTERNAL_WITHDRAWAL
 ```
 
 ### Why Internal Transfer appears as three different things
 
 `Internal Transfer` as a gateway name can mean:
 1. **A real wallet-to-wallet transfer** between a client's own accounts (always INTERNAL_TRANSFER)
-2. **A pre-31-Mar-2026 challenge purchase** — indistinguishable from #1 because MTR did not attach offer name to these transactions (classified as INTERNAL_TRANSFER — **accepted ambiguity**)
-3. **A post-31-Mar-2026 challenge purchase** — identifiable because MTR now attaches the offer name (classified as CHALLENGE_PURCHASE)
+2. **A pre-31-Mar-2026 challenge purchase** — these are actually the TurboTrade Challenge **withdrawals** (identified via the withdrawal-side rule above), not Internal Transfer deposits
+3. **A post-31-Mar-2026 challenge purchase** — identifiable because MTR now attaches the offer name to the deposit
 
-The pre-changeover ambiguity means that `CHALLENGE_PURCHASE` totals will be understated relative to the true historical figure. This is a known limitation and is documented here explicitly so future developers do not try to "fix" it by reclassifying the INTERNAL_TRANSFER bucket.
+The INTERNAL_TRANSFER bucket for deposits with `Internal Transfer` gateway and no offer name remains an **accepted ambiguity** — these are pre-changeover records that cannot be distinguished from real wallet movements. Do not attempt to reclassify this bucket.
 
-### Gateways confirmed excluded from real cashflow (as of 2026-04-24 sync)
+### Historical backfill (completed 2026-04-25)
+
+`php artisan backfill:full-history` was run on 2026-04-25, covering 2025-03-20 → 2026-04-25 (the earliest MTR record date). Results:
+
+- 44,259 rows fetched from API (37,167 deposits + 7,092 withdrawals)
+- 20 new transactions inserted (14 EXTERNAL_DEPOSIT, 4 INTERNAL_TRANSFER, 2 EXTERNAL_WITHDRAWAL)
+- 447 existing CHALLENGE_REFUND rows promoted to CHALLENGE_PURCHASE (offer name confirmed our brand)
+- 9 CHALLENGE_REFUND rows retained (affiliate brand challenges — correctly not our revenue)
+
+Final breakdown after backfill (5,786 total):
+- EXTERNAL_DEPOSIT: 3,592 (62.1%)
+- EXTERNAL_WITHDRAWAL: 1,112 (19.2%)
+- INTERNAL_TRANSFER: 626 (10.8%)
+- CHALLENGE_PURCHASE: 447 (7.7%)
+- CHALLENGE_REFUND: 9 (0.2%)
+
+### Gateways confirmed excluded from real cashflow
 
 See §5 for the full excluded gateway list. Additionally:
 - `Internal Transfer` — always a wallet movement or challenge purchase, never real cashflow
-- `TurboTrade Challenge` — always a challenge refund, never real cashflow
+- `TurboTrade Challenge` — challenge purchase (our brand) or affiliate challenge refund, never real cashflow from the deposit/withdrawal perspective
 
 ---
 
