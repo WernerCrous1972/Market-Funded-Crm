@@ -262,21 +262,41 @@ If type = WITHDRAWAL and status = DONE:
 
 The INTERNAL_TRANSFER bucket for deposits with `Internal Transfer` gateway and no offer name remains an **accepted ambiguity** — these are pre-changeover records that cannot be distinguished from real wallet movements. Do not attempt to reclassify this bucket.
 
-### Historical backfill (completed 2026-04-25)
+### Prop challenge phase offers (synced 2026-04-26)
 
-`php artisan backfill:full-history` was run on 2026-04-25, covering 2025-03-20 → 2026-04-25 (the earliest MTR record date). Results:
+Challenge phase offers are NOT returned by `/v1/offers`. They exist only in `/v1/prop/challenges` as phase entries, each with an `offerUuid`. `SyncOffersJob` now iterates all prop challenges on included branches, builds an offer name as `"{challenge.name} - {phase.phaseName}"` (e.g. `$10k TTR 3-Phase Challenge - Evaluation`), and upserts these into the `offers` table with `is_prop_challenge = true`.
 
-- 44,259 rows fetched from API (37,167 deposits + 7,092 withdrawals)
-- 20 new transactions inserted (14 EXTERNAL_DEPOSIT, 4 INTERNAL_TRANSFER, 2 EXTERNAL_WITHDRAWAL)
-- 447 existing CHALLENGE_REFUND rows promoted to CHALLENGE_PURCHASE (offer name confirmed our brand)
-- 9 CHALLENGE_REFUND rows retained (affiliate brand challenges — correctly not our revenue)
+**Education/course challenges are excluded** — challenges whose name classifies as `MFU_ACADEMY` (contains "course", "academy", etc.) are skipped. Their phase names (Evaluation, Verification, etc.) would otherwise false-positive as CHALLENGE_PURCHASE.
 
-Final breakdown after backfill (5,786 total):
-- EXTERNAL_DEPOSIT: 3,592 (62.1%)
+This naming format is deliberately designed so the classifier matches:
+- `"{challenge name}"` contains the brand code (TTR, QT, or MFU) as a whole word
+- `"{phase name}"` contains a challenge keyword (Evaluation, Verification, Consistency, or Instant Funded — if the challenge name already contains "Instant Funded", the phase name of "Live" is covered by the challenge name portion)
+
+As of 2026-04-26: **133 prop challenge phase offers** in `offers` table (`is_prop_challenge = true`, `pipeline = MFU_CAPITAL`) across QuickTrade and Market Funded branches.
+
+### Historical backfill (completed 2026-04-26)
+
+`backfill:full-history` was run twice:
+- First run (2026-04-25): 447 CHALLENGE_REFUND rows promoted to CHALLENGE_PURCHASE (withdrawal side).
+- Second run (2026-04-26): 3,890 existing DONE deposit rows had `offer_name` populated from the API's `offerUuid` → offers table lookup (previously all NULL because challenge offers were absent from the table). The command was enhanced to update `offer_name` on existing deposit rows when currently NULL and the API provides a resolvable offer.
+
+After `backfill:transaction-categories` re-ran with populated offer names (2026-04-26):
+
+**Final breakdown (5,786 total, as of 2026-04-26):**
+- EXTERNAL_DEPOSIT: 3,548 (61.3%)
 - EXTERNAL_WITHDRAWAL: 1,112 (19.2%)
-- INTERNAL_TRANSFER: 626 (10.8%)
-- CHALLENGE_PURCHASE: 447 (7.7%)
+- CHALLENGE_PURCHASE: 522 (9.0%) — 447 withdrawal-side + 75 deposit-side
+- INTERNAL_TRANSFER: 595 (10.3%)
 - CHALLENGE_REFUND: 9 (0.2%)
+- UNCLASSIFIED: 0
+
+### Known gaps (as of 2026-04-26)
+
+Werner's ground truth: ~880 CP / ~$180,500. Current: 522 CP / $65,193. Two separate gaps:
+
+**Deposit-side gap (254 rows):** Expected ~329, have 75. The 75 correctly classified rows are deposits whose `offerUuid` maps to a challenge phase offer currently in the API. The remaining ~254 deposits reference offer UUIDs for challenges that no longer exist in the `/v1/prop/challenges` API response (retired/archived challenges). There is no more offer data to sync. These rows correctly remain INTERNAL_TRANSFER per the accepted ambiguity rule — do not reclassify without new data.
+
+**Withdrawal-side gap (104 rows):** Expected 551, have 447. Monthly distribution is even across Apr 2025–Apr 2026 (no date gap). The missing rows are within the backfilled date range. Most likely cause: those withdrawals belong to people not in our `people` table (email lookup fails at sync time — person not imported because their account is on an excluded branch or their email failed validation). Extending `--since` will not recover them. Pending Werner's decision on next steps.
 
 ### Gateways confirmed excluded from real cashflow
 

@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Prop Challenge Offer Sync + Deposit-Side Classification Fix (2026-04-26)
+
+#### Root cause resolved
+Deposit-side `CHALLENGE_PURCHASE` rows were absent because challenge phase offers were not in the `offers` table. The `/v1/offers` endpoint returns only standard trading account offers; challenge phase offers live exclusively in `/v1/prop/challenges` as phase entries with `offerUuid` fields. The `offerLookup` in all sync/backfill paths therefore resolved to `null` for challenge deposits, leaving `offer_name = NULL` and forcing the classifier to fall through to `INTERNAL_TRANSFER`.
+
+#### Changes
+
+- **`App\Services\MatchTrader\Client::paginate()`** — fixed to handle flat array API responses. Previously only handled `{content:[…]}` and `{data:[…]}` wrapper shapes. `/v1/prop/challenges` returns a bare JSON array; `allPropChallenges()` was silently yielding zero items. Now detects `array_is_list($response)` and uses the response directly as the record set.
+
+- **`App\Jobs\Sync\SyncOffersJob`** — added `syncPropChallengeOffers()` private method. After syncing standard `/v1/offers`, iterates all prop challenges via `allPropChallenges()`, filters to included branches only, skips education/course challenges (`Classifier::classify($challengeName) === 'MFU_ACADEMY'`), and upserts one offer row per phase with name format `"{challenge.name} - {phase.phaseName}"` and `is_prop_challenge = true`. Result: 133 new `MFU_CAPITAL` offer rows added.
+
+- **`App\Console\Commands\BackfillFullHistory`** — `processDeposit()` now updates `offer_name` on existing deposit rows when currently `NULL` and the API provides a resolvable offer UUID. Previously hard-skipped all existing rows. Result: 3,890 deposit rows had `offer_name` populated.
+
+#### Result after `backfill:transaction-categories` re-run (2026-04-26)
+
+| Category | Count | Value |
+|---|---|---|
+| EXTERNAL_DEPOSIT | 3,548 | $596,779 |
+| EXTERNAL_WITHDRAWAL | 1,112 | $233,217 |
+| CHALLENGE_PURCHASE | **522** | **$65,193** |
+| CHALLENGE_REFUND | 9 | $559 |
+| INTERNAL_TRANSFER | 595 | $96,083 |
+| UNCLASSIFIED | 0 | — |
+
+CHALLENGE_PURCHASE breakdown: 447 withdrawal-side (TurboTrade Challenge, pre-Apr 2026) + 75 deposit-side (Internal Transfer with challenge phase offer name, Dec 2025–Apr 2026).
+
+#### Known gaps (pending Werner's decision)
+- **254 deposit-side CP missing:** Offer UUIDs in DB don't map to any currently active challenge in the API (retired/archived challenges). Rows correctly sit as INTERNAL_TRANSFER. No action without new data source.
+- **104 withdrawal-side CP missing:** Even monthly distribution Apr 2025–Apr 2026, no date gap. Likely missing persons (email lookup fails). Extending `--since` will not help.
+
+---
+
 ### Added — QT Brand + Dual Challenge Classification Path
 
 #### Classifier
