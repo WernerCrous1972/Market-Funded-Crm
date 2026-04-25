@@ -32,8 +32,8 @@ Usage:
         }
 
         $this->info('Loading offer name lookup…');
-        // Build offerUuid → offer name map via trading_accounts join
-        // transaction → trading_account → offer
+        // Build trading_account_id → offer name fallback for rows that have
+        // a trading account link but no persisted offer_name column.
         $offerNameByTradingAccountId = DB::table('trading_accounts')
             ->join('offers', 'offers.id', '=', 'trading_accounts.offer_id')
             ->pluck('offers.name', 'trading_accounts.id')
@@ -55,22 +55,26 @@ Usage:
         $bar = $this->output->createProgressBar($total);
         $bar->start();
 
-        Transaction::select(['id', 'type', 'status', 'gateway_name', 'trading_account_id'])
+        Transaction::select(['id', 'type', 'status', 'gateway_name', 'offer_name', 'trading_account_id', 'occurred_at'])
             ->chunkById($chunkSize, function ($chunk) use (
                 $dryRun, $offerNameByTradingAccountId, &$counts, &$processed, $bar
             ) {
                 $updates = [];
 
                 foreach ($chunk as $tx) {
-                    $offerName = isset($tx->trading_account_id)
-                        ? ($offerNameByTradingAccountId[$tx->trading_account_id] ?? null)
-                        : null;
+                    // Use the persisted offer_name first (set at insert time from API).
+                    // Fall back to the trading_account → offer join for older rows.
+                    $offerName = $tx->offer_name
+                        ?? (isset($tx->trading_account_id)
+                            ? ($offerNameByTradingAccountId[$tx->trading_account_id] ?? null)
+                            : null);
 
                     $category = CategoryClassifier::classify(
                         type:        $tx->type,
                         status:      $tx->status,
                         gatewayName: $tx->gateway_name,
                         offerName:   $offerName,
+                        occurredAt:  $tx->occurred_at ? (string) $tx->occurred_at : null,
                     );
 
                     $counts[$category]++;

@@ -293,6 +293,7 @@ class BackfillFullHistory extends Command
             'currency'             => strtoupper($financials['currency'] ?? 'USD'),
             'status'               => 'DONE',
             'gateway_name'         => $gatewayInfo['name'] ?? null,
+            'offer_name'           => $offer?->name,
             'remark'               => $raw['remark'] ?? null,
             'occurred_at'          => \Carbon\Carbon::parse($raw['created'] ?? now())->toIso8601String(),
             'synced_at'            => now()->toIso8601String(),
@@ -376,6 +377,7 @@ class BackfillFullHistory extends Command
                     status:      'DONE',
                     gatewayName: $gatewayInfo['name'] ?? null,
                     offerName:   $offer->name,
+                    occurredAt:  $raw['created'] ?? null,
                 );
 
                 if ($newCategory === 'CHALLENGE_PURCHASE') {
@@ -383,7 +385,10 @@ class BackfillFullHistory extends Command
                     if (!$isDryRun) {
                         DB::table('transactions')
                             ->where('id', $existing->id)
-                            ->update(['category' => 'CHALLENGE_PURCHASE']);
+                            ->update([
+                                'category'   => 'CHALLENGE_PURCHASE',
+                                'offer_name' => $offer->name,
+                            ]);
                     }
                     return;
                 }
@@ -417,6 +422,7 @@ class BackfillFullHistory extends Command
             status:      'DONE',
             gatewayName: $gatewayInfo['name'] ?? null,
             offerName:   $offer?->name,
+            occurredAt:  $raw['created'] ?? null,
         );
 
         $this->insertedByCategory[$category]++;
@@ -451,6 +457,7 @@ class BackfillFullHistory extends Command
             'currency'             => strtoupper($financials['currency'] ?? 'USD'),
             'status'               => 'DONE',
             'gateway_name'         => $gatewayInfo['name'] ?? null,
+            'offer_name'           => $offer?->name,
             'remark'               => $raw['remark'] ?? null,
             'occurred_at'          => \Carbon\Carbon::parse($raw['created'] ?? now())->toIso8601String(),
             'synced_at'            => now()->toIso8601String(),

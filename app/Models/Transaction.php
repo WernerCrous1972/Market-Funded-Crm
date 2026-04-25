@@ -30,6 +30,7 @@ class Transaction extends Model
         'currency',
         'status',
         'gateway_name',
+        'offer_name',
         'remark',
         'occurred_at',
         'synced_at',

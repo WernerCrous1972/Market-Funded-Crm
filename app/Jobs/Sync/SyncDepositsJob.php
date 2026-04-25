@@ -180,6 +180,7 @@ class SyncDepositsJob implements ShouldQueue
                     'currency'             => strtoupper($financials['currency'] ?? 'USD'),
                     'status'               => 'DONE',
                     'gateway_name'         => $gatewayInfo['name'] ?? null,
+                    'offer_name'           => $offer?->name,
                     'remark'               => $raw['remark'] ?? null,
                     'occurred_at'          => \Carbon\Carbon::parse($raw['created'] ?? now())->toIso8601String(),
                     'synced_at'            => now()->toIso8601String(),
