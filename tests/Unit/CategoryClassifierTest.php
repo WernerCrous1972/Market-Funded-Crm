@@ -211,39 +211,6 @@ describe('CategoryClassifier', function () {
             ->toBe('CHALLENGE_REFUND');
     });
 
-    // ── April 2026 cutoff — post-changeover TurboTrade Challenge = always REFUND ─
-
-    it('TurboTrade Challenge + our brand + pre-cutoff date → CHALLENGE_PURCHASE', function () {
-        expect(CategoryClassifier::classify(
-            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge',
-            'Evaluation_1_$5k TTR 3-Phase Challenge',
-            '2026-03-31T23:59:59+00:00',
-        ))->toBe('CHALLENGE_PURCHASE');
-    });
-
-    it('TurboTrade Challenge + our brand + on cutoff date → CHALLENGE_REFUND (post-changeover)', function () {
-        expect(CategoryClassifier::classify(
-            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge',
-            'Evaluation_1_$5k TTR 3-Phase Challenge',
-            '2026-04-01T00:00:00+00:00',
-        ))->toBe('CHALLENGE_REFUND');
-    });
-
-    it('TurboTrade Challenge + our brand + post-cutoff date → CHALLENGE_REFUND', function () {
-        expect(CategoryClassifier::classify(
-            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge',
-            'Evaluation_1_$5k MFU 3-Phase Challenge',
-            '2026-04-16T14:09:52+00:00',
-        ))->toBe('CHALLENGE_REFUND');
-    });
-
-    it('TurboTrade Challenge without occurredAt still applies brand check (backwards-compatible)', function () {
-        // No date → behaves as pre-cutoff (callers should always pass the date)
-        expect(CategoryClassifier::classify(
-            'WITHDRAWAL', 'DONE', 'TurboTrade Challenge',
-            'Evaluation_1_$5k TTR 3-Phase Challenge',
-        ))->toBe('CHALLENGE_PURCHASE');
-    });
 
     // ── Non-DONE status → UNCLASSIFIED ───────────────────────────────────────
 

@@ -28,9 +28,6 @@ namespace App\Services\Transaction;
  *
  *   WITHDRAWAL + DONE:
  *     gateway = TurboTrade Challenge:
- *       occurred_at >= PURCHASE_CUTOFF_DATE (2026-04-01) → CHALLENGE_REFUND
- *         (post-changeover: purchases moved to deposit side; any TurboTrade
- *          Challenge withdrawal is now a refund regardless of brand)
  *       offer contains our brand code (case-insensitive) → CHALLENGE_PURCHASE
  *         (pre-April-2026 purchase: MTR booked these as wallet withdrawals)
  *       otherwise                                        → CHALLENGE_REFUND
@@ -44,26 +41,16 @@ namespace App\Services\Transaction;
 class CategoryClassifier
 {
     /**
-     * On 2026-04-01, MTR switched challenge purchases to the deposit side.
-     * Any TurboTrade Challenge withdrawal on or after this date is a refund,
-     * not a purchase — regardless of the offer name or brand code.
-     */
-    private const PURCHASE_CUTOFF_DATE = '2026-04-01';
-
-    /**
      * @param  string       $type        DEPOSIT or WITHDRAWAL
      * @param  string       $status      DONE, PENDING, FAILED, REVERSED, …
      * @param  string|null  $gatewayName paymentGatewayDetails.name from MTR
      * @param  string|null  $offerName   Name of the offer linked to the trading account
-     * @param  string|null  $occurredAt  ISO-8601 transaction date; used to enforce the
-     *                                   April 2026 cutoff on the withdrawal side
      */
     public static function classify(
         string $type,
         string $status,
         ?string $gatewayName,
         ?string $offerName,
-        ?string $occurredAt = null,
     ): string {
         if (strtoupper($status) !== 'DONE') {
             return 'UNCLASSIFIED';
@@ -85,14 +72,9 @@ class CategoryClassifier
 
         // WITHDRAWAL
         if ($gateway === 'turbotrade challenge') {
-            // Post-cutoff: challenge purchases moved to the deposit side on 2026-04-01.
-            // Any TurboTrade Challenge withdrawal on or after that date is a refund.
-            if ($occurredAt !== null && substr($occurredAt, 0, 10) >= self::PURCHASE_CUTOFF_DATE) {
-                return 'CHALLENGE_REFUND';
-            }
-
-            // Pre-cutoff: MTR booked challenge purchases as wallet withdrawals.
-            // Identify ours by brand code; affiliate brands remain CHALLENGE_REFUND.
+            // A TurboTrade Challenge withdrawal with our brand code in the offer
+            // is a pre-April-2026 challenge purchase — MTR booked these as
+            // wallet withdrawals before the gateway changeover.
             return self::hasOurBrandCode($offerName)
                 ? 'CHALLENGE_PURCHASE'
                 : 'CHALLENGE_REFUND';
