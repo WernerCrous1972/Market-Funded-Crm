@@ -226,9 +226,25 @@ class BackfillFullHistory extends Command
         // Track date range
         $this->trackDate($raw['created'] ?? null, $stats);
 
-        // Skip existing rows
-        if (Transaction::where('mtr_transaction_uuid', $mtrUuid)->exists()) {
-            $stats['skipped_existing']++;
+        // Resolve offer early — needed for both existing-row backfill and new inserts
+        $taInfo    = $accountInfo['tradingAccount'] ?? [];
+        $taUuid    = $taInfo['uuid'] ?? null;
+        $offerUuid = $taInfo['offerUuid'] ?? null;
+        $offer     = $offerUuid ? $offerLookup->get($offerUuid) : null;
+        $pipeline  = $offer?->pipeline ?? Classifier::classify($offer?->name ?? $offerUuid, $offerUuid);
+
+        // For existing deposit rows: if offer_name is NULL and we now have it,
+        // populate it so backfill:transaction-categories can re-classify correctly.
+        $existing = Transaction::where('mtr_transaction_uuid', $mtrUuid)->first();
+        if ($existing) {
+            if ($existing->offer_name === null && $offer !== null && !$isDryRun) {
+                DB::table('transactions')
+                    ->where('id', $existing->id)
+                    ->update(['offer_name' => $offer->name]);
+                $stats['reclassified']++;
+            } else {
+                $stats['skipped_existing']++;
+            }
             return;
         }
 
@@ -245,12 +261,6 @@ class BackfillFullHistory extends Command
             $stats['skipped_filtered']++;
             return;
         }
-
-        $taInfo    = $accountInfo['tradingAccount'] ?? [];
-        $taUuid    = $taInfo['uuid'] ?? null;
-        $offerUuid = $taInfo['offerUuid'] ?? null;
-        $offer     = $offerUuid ? $offerLookup->get($offerUuid) : null;
-        $pipeline  = $offer?->pipeline ?? Classifier::classify($offer?->name ?? $offerUuid, $offerUuid);
 
         $amountCents = (int) round((float) ($financials['amount'] ?? 0) * 100);
 
@@ -377,7 +387,6 @@ class BackfillFullHistory extends Command
                     status:      'DONE',
                     gatewayName: $gatewayInfo['name'] ?? null,
                     offerName:   $offer->name,
-                    occurredAt:  $raw['created'] ?? null,
                 );
 
                 if ($newCategory === 'CHALLENGE_PURCHASE') {
@@ -422,7 +431,6 @@ class BackfillFullHistory extends Command
             status:      'DONE',
             gatewayName: $gatewayInfo['name'] ?? null,
             offerName:   $offer?->name,
-            occurredAt:  $raw['created'] ?? null,
         );
 
         $this->insertedByCategory[$category]++;

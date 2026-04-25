@@ -74,7 +74,6 @@ Usage:
                         status:      $tx->status,
                         gatewayName: $tx->gateway_name,
                         offerName:   $offerName,
-                        occurredAt:  $tx->occurred_at ? (string) $tx->occurred_at : null,
                     );
 
                     $counts[$category]++;

@@ -163,7 +163,6 @@ class SyncWithdrawalsJob implements ShouldQueue
                     status:      'DONE',
                     gatewayName: $gatewayInfo['name'] ?? null,
                     offerName:   $offer?->name,
-                    occurredAt:  $raw['created'] ?? null,
                 );
 
                 $transaction = Transaction::create([
