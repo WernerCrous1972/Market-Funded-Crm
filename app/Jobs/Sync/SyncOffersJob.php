@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs\Sync;
 
+use App\Models\Branch;
 use App\Models\Offer;
 use App\Services\MatchTrader\Client;
 use App\Services\Pipeline\Classifier;
@@ -28,8 +29,13 @@ class SyncOffersJob implements ShouldQueue
     {
         Log::info('SyncOffersJob: starting');
 
-        // Load prop challenge offer UUIDs first so classification is accurate
-        $propOfferUuids = $this->collectPropOfferUuids($mtr);
+        // Fetch all prop challenges once (plain array — API returns flat, not paginated).
+        // Reused for both UUID seeding and phase-offer upsert so we never traverse
+        // the generator twice (which would cause "already closed generator" errors).
+        $allChallenges = $mtr->propChallenges(page: 0, size: 1000);
+
+        // Seed the pipeline classifier with known prop challenge UUIDs
+        $propOfferUuids = $this->collectPropOfferUuids($allChallenges);
         Classifier::setPropOfferUuids($propOfferUuids);
 
         $rawOffers = $mtr->offers();
@@ -66,34 +72,99 @@ class SyncOffersJob implements ShouldQueue
             }
         }
 
+        // ── Prop challenge phase offers ───────────────────────────────────────
+        // Upsert one offer row per challenge phase so that deposit-side
+        // transactions linked to these phase accounts resolve to an offer
+        // name containing the challenge keyword + brand code, enabling
+        // CategoryClassifier to classify them as CHALLENGE_PURCHASE.
+        $this->syncPropChallengeOffers($allChallenges, $created, $updated);
+
         Log::info("SyncOffersJob: done — created={$created} updated={$updated} prop_uuids=" . count($propOfferUuids));
     }
 
-    /** @return string[] */
-    private function collectPropOfferUuids(Client $mtr): array
+    private function syncPropChallengeOffers(array $allChallenges, int &$created, int &$updated): void
+    {
+        $includedBranchUuids = Branch::where('is_included', true)
+            ->pluck('mtr_branch_uuid')
+            ->flip()
+            ->toArray();
+
+        foreach ($allChallenges as $challenge) {
+            if (!is_array($challenge)) {
+                continue;
+            }
+
+            // Skip challenges on branches we don't manage
+            $branchUuid = $challenge['branch']['uuid'] ?? null;
+            if (!$branchUuid || !array_key_exists($branchUuid, $includedBranchUuids)) {
+                continue;
+            }
+
+            $challengeName = trim($challenge['name'] ?? '');
+            if (!$challengeName) {
+                continue;
+            }
+
+            // Skip education/course challenges — they share phase names (Evaluation,
+            // Verification, etc.) with trading challenges but are not prop purchases.
+            if (Classifier::classify($challengeName) === 'MFU_ACADEMY') {
+                continue;
+            }
+
+            foreach ($challenge['phases'] ?? [] as $phase) {
+                $phaseOfferUuid = $phase['offerUuid'] ?? null;
+                $phaseName      = trim($phase['phaseName'] ?? '');
+
+                if (!$phaseOfferUuid || !$phaseName) {
+                    continue;
+                }
+
+                $offerName = "{$challengeName} - {$phaseName}";
+                $pipeline  = Classifier::classify($offerName, $phaseOfferUuid);
+
+                if (!$this->dryRun) {
+                    $offer = Offer::updateOrCreate(
+                        ['mtr_offer_uuid' => $phaseOfferUuid],
+                        [
+                            'name'              => $offerName,
+                            'pipeline'          => $pipeline,
+                            'is_demo'           => false,
+                            'is_prop_challenge' => true,
+                            'branch_uuid'       => $branchUuid,
+                            'raw_data'          => $phase,
+                        ]
+                    );
+                    $offer->wasRecentlyCreated ? $created++ : $updated++;
+                } else {
+                    Log::info("DRY-RUN challenge offer: {$offerName} → {$pipeline}");
+                    $created++;
+                }
+            }
+        }
+    }
+
+    /**
+     * @param  array<array>  $allChallenges  Raw challenge array from propChallenges()
+     * @return string[]
+     */
+    private function collectPropOfferUuids(array $allChallenges): array
     {
         $uuids = [];
 
-        try {
-            foreach ($mtr->allPropChallenges() as $challenge) {
-                if (! is_array($challenge)) {
-                    continue;
-                }
-                // Each challenge has phases, each phase has an offerUuid
-                foreach ($challenge['phases'] ?? [] as $phase) {
-                    $offerUuid = $phase['offerUuid'] ?? $phase['offer']['uuid'] ?? null;
-                    if ($offerUuid) {
-                        $uuids[] = $offerUuid;
-                    }
-                }
-                // Also capture direct offer reference if present
-                $directUuid = $challenge['offerUuid'] ?? null;
-                if ($directUuid) {
-                    $uuids[] = $directUuid;
+        foreach ($allChallenges as $challenge) {
+            if (! is_array($challenge)) {
+                continue;
+            }
+            foreach ($challenge['phases'] ?? [] as $phase) {
+                $offerUuid = $phase['offerUuid'] ?? $phase['offer']['uuid'] ?? null;
+                if ($offerUuid) {
+                    $uuids[] = $offerUuid;
                 }
             }
-        } catch (\Throwable $e) {
-            Log::warning('SyncOffersJob: could not load prop challenges for UUID seeding: ' . $e->getMessage());
+            $directUuid = $challenge['offerUuid'] ?? null;
+            if ($directUuid) {
+                $uuids[] = $directUuid;
+            }
         }
 
         return array_unique($uuids);

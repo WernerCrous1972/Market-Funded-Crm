@@ -17,7 +17,7 @@ describe('mtr:sync command', function () {
 
         $mockClient->shouldReceive('branches')->andReturn([]);
         $mockClient->shouldReceive('offers')->andReturn([]);
-        $mockClient->shouldReceive('allPropChallenges')->andReturn((function () { yield from []; })());
+        $mockClient->shouldReceive('propChallenges')->andReturn([]);
         $mockClient->shouldReceive('allAccounts')->andReturn((function () { yield from []; })());
         $mockClient->shouldReceive('allDeposits')->andReturn((function () { yield from []; })());
         $mockClient->shouldReceive('allWithdrawals')->andReturn((function () { yield from []; })());
@@ -38,7 +38,7 @@ describe('mtr:sync command', function () {
 
         $mockClient->shouldReceive('branches')->once()->andReturn([]);
         $mockClient->shouldReceive('offers')->once()->andReturn([]);
-        $mockClient->shouldReceive('allPropChallenges')->once()->andReturn((function () { yield from []; })());
+        $mockClient->shouldReceive('propChallenges')->once()->andReturn([]);
 
         // These should NOT be called
         $mockClient->shouldNotReceive('allAccounts');
