@@ -8,6 +8,7 @@ use App\Jobs\Sync\SyncAccountsJob;
 use App\Jobs\Sync\SyncBranchesJob;
 use App\Jobs\Sync\SyncDepositsJob;
 use App\Jobs\Sync\SyncOffersJob;
+use App\Jobs\Sync\SyncOurChallengeBuyersJob;
 use App\Jobs\Sync\SyncWithdrawalsJob;
 use App\Services\MatchTrader\Client;
 use Illuminate\Console\Command;
@@ -16,13 +17,14 @@ use Illuminate\Support\Facades\Storage;
 class MtrSync extends Command
 {
     protected $signature = 'mtr:sync
-        {--full              : Sync all records from the beginning of time}
-        {--incremental       : Sync only records from the last 24 hours}
-        {--dry-run           : Log what would happen without writing to the database}
-        {--offers-only       : Only sync offers and branches}
-        {--accounts-only     : Only sync accounts (people + trading accounts)}
-        {--deposits-only     : Only sync deposits}
-        {--withdrawals-only  : Only sync withdrawals}';
+        {--full                    : Sync all records from the beginning of time}
+        {--incremental             : Sync only records from the last 24 hours}
+        {--dry-run                 : Log what would happen without writing to the database}
+        {--offers-only             : Only sync offers and branches}
+        {--accounts-only           : Only sync accounts (people + trading accounts)}
+        {--deposits-only           : Only sync deposits}
+        {--withdrawals-only        : Only sync withdrawals}
+        {--challenge-buyers-only   : Only run the cross-branch challenge buyer import}';
 
     protected $description = 'Sync data from the Match-Trader Broker API.
 
@@ -42,11 +44,13 @@ Usage:
         $incremental = (bool) $this->option('incremental');
         $since       = $incremental ? now()->subDay()->toIso8601String() : null;
 
-        $onlyOffers      = (bool) $this->option('offers-only');
-        $onlyAccounts    = (bool) $this->option('accounts-only');
-        $onlyDeposits    = (bool) $this->option('deposits-only');
-        $onlyWithdrawals = (bool) $this->option('withdrawals-only');
-        $runAll          = ! $onlyOffers && ! $onlyAccounts && ! $onlyDeposits && ! $onlyWithdrawals;
+        $onlyOffers          = (bool) $this->option('offers-only');
+        $onlyAccounts        = (bool) $this->option('accounts-only');
+        $onlyDeposits        = (bool) $this->option('deposits-only');
+        $onlyWithdrawals     = (bool) $this->option('withdrawals-only');
+        $onlyChallengeBuyers = (bool) $this->option('challenge-buyers-only');
+        $runAll              = ! $onlyOffers && ! $onlyAccounts && ! $onlyDeposits
+            && ! $onlyWithdrawals && ! $onlyChallengeBuyers;
 
         if (! $full && ! $incremental && $runAll) {
             $this->error('Specify --full, --incremental, or a specific --*-only flag.');
@@ -67,6 +71,12 @@ Usage:
 
         if ($runAll || $onlyAccounts) {
             $this->runJob('Accounts', new SyncAccountsJob($dryRun, $incremental), $mtr);
+        }
+
+        // Challenge buyers runs after accounts so newly created people are already present.
+        // Brand code in challengeName is the ownership signal — branch is intentionally ignored.
+        if ($runAll || $onlyChallengeBuyers) {
+            $this->runJob('Challenge Buyers', new SyncOurChallengeBuyersJob($dryRun), $mtr);
         }
 
         if ($runAll || $onlyDeposits) {

@@ -58,6 +58,11 @@ class SyncAccountsJob implements ShouldQueue
 
             try {
                 // ── Branch filter ──────────────────────────────────────────
+                // People on excluded branches are skipped entirely — no DB write.
+                // This intentionally preserves records already imported by
+                // SyncOurChallengeBuyersJob (brand-first imports): because we
+                // never reach the upsert path for excluded branches, their records
+                // are left untouched even if the person later appears here.
                 $branchUuid = $raw['accountConfiguration']['branchUuid'] ?? null;
                 $branchName = $branchUuid ? (string) ($branchLookup[$branchUuid] ?? '') : '';
                 if (! in_array(strtolower($branchName), $includedBranches, true)) {
