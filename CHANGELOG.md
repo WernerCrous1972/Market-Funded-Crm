@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Deposit-side CP gap confirmed illusory (2026-04-26)
+
+Werner exported all DONE deposits for April 2026 from MTR and applied classifier rules directly. Result: 24 qualifying rows in export, 24 in DB — exact match. The "~329 expected, ~254 missing" deposit-side gap was an estimation error, not a real gap.
+
+Additional verification: a card-paid TTR challenge (`ZAR Card/Online EFT Payments PayGate`, `$200k TTR 1-Phase Challenge - Consistency`, 14 Apr 2026, $149.90) is correctly stored as `CHALLENGE_PURCHASE` in DB, confirming the offer-name-wins-over-gateway rule works regardless of payment method.
+
+The "retired/archived challenges" theory from the earlier diagnostic is retracted. There are no retired challenges and no deposit-side classification gap.
+
+**Corrected gap framing:**
+- Deposit-side gap: **0** (estimation error)
+- Withdrawal-side gap: **~93 rows** (cross-branch buyers not yet imported — partially recoverable via `SyncOurChallengeBuyersJob` on future syncs)
+- Total real gap: ~93, not ~346
+
+BRAIN.md §10 updated to reflect verified state.
+
 ### Added — Brand-First Challenge Buyer Import (2026-04-26)
 
 #### Root cause resolved

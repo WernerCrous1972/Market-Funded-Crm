@@ -282,21 +282,22 @@ As of 2026-04-26: **133 prop challenge phase offers** in `offers` table (`is_pro
 
 After `backfill:transaction-categories` re-ran with populated offer names (2026-04-26):
 
-**Final breakdown (5,786 total, as of 2026-04-26):**
-- EXTERNAL_DEPOSIT: 3,548 (61.3%)
-- EXTERNAL_WITHDRAWAL: 1,112 (19.2%)
-- CHALLENGE_PURCHASE: 522 (9.0%) — 447 withdrawal-side + 75 deposit-side
-- INTERNAL_TRANSFER: 595 (10.3%)
+**Final breakdown (5,849 total, as of 2026-04-26):**
+- EXTERNAL_DEPOSIT: 3,579 (61.2%)
+- EXTERNAL_WITHDRAWAL: 1,121 (19.2%)
+- CHALLENGE_PURCHASE: 534 (9.1%) — 458 withdrawal-side + 76 deposit-side
+- INTERNAL_TRANSFER: 606 (10.4%)
 - CHALLENGE_REFUND: 9 (0.2%)
 - UNCLASSIFIED: 0
 
-### Known gaps (as of 2026-04-26)
+### Known gaps (as of 2026-04-26, verified)
 
-Werner's ground truth: ~880 CP / ~$180,500. Current: 522 CP / $65,193. Two separate gaps:
+Current state: **534 CP / $66,607** (458 withdrawal-side + 76 deposit-side).
 
-**Deposit-side gap (254 rows):** Expected ~329, have 75. The 75 correctly classified rows are deposits whose `offerUuid` maps to a challenge phase offer currently in the API. The remaining ~254 deposits reference offer UUIDs for challenges that no longer exist in the `/v1/prop/challenges` API response (retired/archived challenges). There is no more offer data to sync. These rows correctly remain INTERNAL_TRANSFER per the accepted ambiguity rule — do not reclassify without new data.
+**Deposit-side gap — CONFIRMED ILLUSORY (2026-04-26).**
+Previous estimate of "~329 expected, ~254 missing" was an estimation error, not a real gap. Verified by exporting all DONE deposits for April 2026 from MTR and applying the classifier rules directly: 24 qualifying rows in the export, 24 in our DB — exact match. The classifier's offer-name-wins-over-gateway rule was also confirmed: a card-paid TTR challenge (`ZAR Card/Online EFT Payments PayGate`, `$200k TTR 1-Phase Challenge - Consistency`, 2026-04-14) is correctly classified as `CHALLENGE_PURCHASE` in our DB. There is no deposit-side gap. The "retired/archived challenges" theory from earlier investigation was wrong and is retracted.
 
-**Withdrawal-side gap (104 rows):** Expected 551, have 447. Monthly distribution is even across Apr 2025–Apr 2026 (no date gap). The missing rows are within the backfilled date range. Most likely cause: those withdrawals belong to people not in our `people` table (email lookup fails at sync time — person not imported because their account is on an excluded branch or their email failed validation). Extending `--since` will not recover them. Pending Werner's decision on next steps.
+**Withdrawal-side gap (~93 rows):** Expected ~551, have 458. Gap reduced from 104 → 93 after `SyncOurChallengeBuyersJob` recovered 11 additional people. Root cause: these withdrawals belong to people whose CRM account is on an excluded branch (cross-broker challenge buyers — see §11). Partially recoverable as those people appear in future challenge syncs. Extending `--since` will not recover historical rows; a targeted backfill after a new person is imported is required.
 
 ### Gateways confirmed excluded from real cashflow
 

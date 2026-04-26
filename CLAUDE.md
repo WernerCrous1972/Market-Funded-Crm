@@ -92,7 +92,7 @@ Read this file at the start of every session. Then read `BRAIN.md` for business 
 | INTERNAL_TRANSFER | 606 | $96,291 |
 | UNCLASSIFIED | 0 | — |
 
-Expected ground truth: ~880 CP / ~$180,500. Remaining gap is the accepted withdrawal-side gap (104 rows — same root cause as the 48 new people, just different people not yet recoverable). See BRAIN.md §10 and §11.
+CP ground truth ~880 / ~$180,500. **Deposit-side gap is illusory** — verified by MTR export comparison for April 2026: 24 qualifying rows in export, 24 in DB, exact match. Only real gap: **~93 withdrawal-side** (cross-branch buyers not yet in DB). Partially recoverable via future `SyncOurChallengeBuyersJob` runs. See BRAIN.md §10.
 
 ### Known limitations / next up (Phase 2)
 - No rich Person detail page yet (only list + basic view)
