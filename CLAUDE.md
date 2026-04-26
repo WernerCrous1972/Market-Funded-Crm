@@ -73,7 +73,8 @@ Read this file at the start of every session. Then read `BRAIN.md` for business 
 - Filament resources: `PersonResource` (list + view), `TransactionResource`, `TradingAccountResource`
 - Dashboard widgets: `StatsOverviewWidget` (6 stats), `RecentActivityWidget` (last 20 events)
 - Admin seeder: werner@market-funded.com / changeme123! (role=ADMIN)
-- **75 Pest tests passing**
+- **76 Pest tests passing**
+- **Incremental sync date filter fixed** — `from` param (was `dateFrom`, silently ignored by MTR API)
 
 ### Live data (as of 2026-04-26)
 - 29,332 people (28,055 leads, 1,277 clients) — +48 from challenge buyer import
@@ -100,6 +101,21 @@ CP ground truth ~880 / ~$180,500. **Deposit-side gap is illusory** — verified 
 - No saved reports
 - `people.country` stores raw MTR value — can be full name ("South Africa") or ISO-2 ("ZA") — not normalised to ISO-2
 - **SyncOurChallengeBuyersJob requires `php -d memory_limit=2G`** — streams all /v1/accounts into memory for CRM enrichment (same constraint as full account sync)
+- `SyncOurChallengeBuyersJob` memory footprint could be reduced by replacing the 29k in-memory map with per-email lookups via `/v1/accounts/by-email/{email}` (verified working in production)
+
+---
+
+## End of session 2026-04-26 — Phase 1 closed at v0.4.0-classifier-verified
+
+**What's working:**
+- Full MTR sync (offers, branches, accounts, deposits, withdrawals, prop challenge buyers) running correctly
+- Brand-first customer identity (TTR/QT/MFU) preserves cross-branch buyers
+- Transaction categorization verified against MTR export — deposit-side fully captured (no gap), 93-row withdrawal-side gap accepted
+- Incremental sync now correctly filters by date (was silently doing full pulls before)
+- 76 tests passing, all critical paths covered
+
+**Phase 2 entry point:**
+The next session should focus on the rich Person detail page — segment pills, equity/deposit/withdrawal chart (90 days), activity timeline, related notes/tasks/trading accounts. See `market-funded-crm-phase-0-brief.md` §"Phase 2" for the spec.
 
 ---
 
