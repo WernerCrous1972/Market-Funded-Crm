@@ -163,6 +163,16 @@ class Client
         yield from $this->paginate('/v1/prop/challenges', $pageSize);
     }
 
+    /**
+     * Fetch all prop challenge account records (paginated).
+     *
+     * @return \Generator<array>
+     */
+    public function allPropAccounts(int $pageSize = 500): \Generator
+    {
+        yield from $this->paginate('/v1/prop/accounts', $pageSize);
+    }
+
     // ── Pagination ───────────────────────────────────────────────────────────
 
     /**

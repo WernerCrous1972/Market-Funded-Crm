@@ -39,6 +39,7 @@ class Person extends Model
         'mtr_last_synced_at',
         'mtr_created_at',
         'mtr_updated_at',
+        'imported_via_challenge',
     ];
 
     protected function casts(): array
@@ -50,6 +51,7 @@ class Person extends Model
             'mtr_created_at'          => 'datetime',
             'mtr_updated_at'          => 'datetime',
             'notes_contacted'         => 'boolean',
+            'imported_via_challenge'  => 'boolean',
         ];
     }
 
