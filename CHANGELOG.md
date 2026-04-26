@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Incremental sync date filter was silently ignored (2026-04-26)
+
+`Client.php` was passing `dateFrom` as the query parameter for `/v1/deposits` and `/v1/withdrawals` incremental filtering. The MTR API silently ignores unknown parameters and returned the full dataset (37,196 deposits) on every incremental run — identical to a full pull.
+
+**Verified via tinker:**
+- `dateFrom=2026-04-25T00:00:00Z` → 37,196 rows (full dataset, filter ignored)
+- `from=2026-04-25T00:00:00Z` → 86 rows (correct)
+
+Fixed by renaming `dateFrom` → `from` in all four affected methods (`deposits()`, `allDeposits()`, `withdrawals()`, `allWithdrawals()`). Incremental sync (`mtr:sync --incremental`) now correctly fetches only transactions since the cutoff timestamp.
+
+No data was lost — all transactions were imported on every run. Only bandwidth and runtime were wasted.
+
 ### Fixed — Deposit-side CP gap confirmed illusory (2026-04-26)
 
 Werner exported all DONE deposits for April 2026 from MTR and applied classifier rules directly. Result: 24 qualifying rows in export, 24 in DB — exact match. The "~329 expected, ~254 missing" deposit-side gap was an estimation error, not a real gap.

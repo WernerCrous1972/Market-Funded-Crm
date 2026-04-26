@@ -344,6 +344,24 @@ Should the CRM eventually import ALL MTR records regardless of brand or branch (
 
 ---
 
+## 13. MTR API — Verified Production Behaviour (overrides docs)
+
+`docs/Mt-api.md` is the canonical API reference but contains several inaccuracies vs production. **When docs and production conflict, production wins.** Always verify with `php artisan tinker` before writing field-access code.
+
+### Verified corrections (2026-04-26)
+
+| Endpoint / param | Docs say | Production | Status |
+|---|---|---|---|
+| Date filter on `/v1/deposits`, `/v1/withdrawals` | `from` (RFC 3339) | `from` — `dateFrom` is **silently ignored** | Fixed in `Client.php` |
+| `/v1/accounts/{uuid}` | Valid GET | Returns 405 | Likely permissions — do not use |
+| `/v1/accounts` response shape | `personalDetails` only (phone/country inline) | Also includes `contactDetails` and `addressDetails` wrappers | Our code is correct |
+| `/v1/accounts/by-email/{email}` | Documented | Returns 200 with full account shape | Works — refactor candidate for `SyncOurChallengeBuyersJob` |
+| `/v1/prop/trading-accounts` | Documented | Returns 404 | Use `/v1/prop/accounts` instead |
+| `/v1/branches`, `/v1/offers` | Flat array | Wrapped: `{branches:[…]}` / `{offers:[…]}` | Our fallback handles both |
+| `/v1/prop/challenges` phases | Single `offerUuid` per challenge | `phases[]` array with `offerUuid` per phase | Docs outdated; our code is correct |
+
+---
+
 ## 12. Data Integrity Rules
 
 - **All money** is stored as `bigint` in cents (multiply by 100 on write, divide by 100 on read). Never use floats.

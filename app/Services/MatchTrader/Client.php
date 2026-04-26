@@ -76,7 +76,7 @@ class Client
     {
         $params = ['page' => $page, 'size' => $size];
         if ($since !== null) {
-            $params['dateFrom'] = $since;
+            $params['from'] = $since; // MTR API param is 'from', not 'dateFrom' (verified 2026-04-26)
         }
 
         return $this->get('/v1/deposits', $params);
@@ -89,7 +89,7 @@ class Client
     {
         $params = [];
         if ($since !== null) {
-            $params['dateFrom'] = $since;
+            $params['from'] = $since; // MTR API param is 'from', not 'dateFrom' (verified 2026-04-26)
         }
         yield from $this->paginate('/v1/deposits', $pageSize, $params);
     }
@@ -103,7 +103,7 @@ class Client
     {
         $params = ['page' => $page, 'size' => $size];
         if ($since !== null) {
-            $params['dateFrom'] = $since;
+            $params['from'] = $since; // MTR API param is 'from', not 'dateFrom' (verified 2026-04-26)
         }
 
         return $this->get('/v1/withdrawals', $params);
@@ -116,7 +116,7 @@ class Client
     {
         $params = [];
         if ($since !== null) {
-            $params['dateFrom'] = $since;
+            $params['from'] = $since; // MTR API param is 'from', not 'dateFrom' (verified 2026-04-26)
         }
         yield from $this->paginate('/v1/withdrawals', $pageSize, $params);
     }
