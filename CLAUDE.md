@@ -76,29 +76,30 @@ Read this file at the start of every session. Then read `BRAIN.md` for business 
 - **75 Pest tests passing**
 
 ### Live data (as of 2026-04-26)
-- 29,284 people (28,028 leads, 1,256 clients)
-- 5,786 transactions: 3,905 deposits, 1,881 withdrawals
+- 29,332 people (28,055 leads, 1,277 clients) — +48 from challenge buyer import
+- 5,849 transactions: 3,942 deposits, 1,907 withdrawals
 - **254 offers** (121 standard trading + 133 prop challenge phase offers)
 - 26 branches (2 included: Market Funded + QuickTrade)
+- **48 people** with `imported_via_challenge = true` (cross-branch / ghost records)
 
 ### Transaction classification (as of 2026-04-26)
 | Category | Count | Value |
 |---|---|---|
-| EXTERNAL_DEPOSIT | 3,548 | $596,779 |
-| EXTERNAL_WITHDRAWAL | 1,112 | $233,217 |
-| CHALLENGE_PURCHASE | **522** | **$65,193** |
+| EXTERNAL_DEPOSIT | 3,579 | $600,432 |
+| EXTERNAL_WITHDRAWAL | 1,121 | $233,965 |
+| CHALLENGE_PURCHASE | **534** | **$66,607** |
 | CHALLENGE_REFUND | 9 | $559 |
-| INTERNAL_TRANSFER | 595 | $96,083 |
+| INTERNAL_TRANSFER | 606 | $96,291 |
 | UNCLASSIFIED | 0 | — |
 
-Expected ground truth: ~880 CP / ~$180,500. Two known gaps — see BRAIN.md §10 for detail.
+Expected ground truth: ~880 CP / ~$180,500. Remaining gap is the accepted withdrawal-side gap (104 rows — same root cause as the 48 new people, just different people not yet recoverable). See BRAIN.md §10 and §11.
 
 ### Known limitations / next up (Phase 2)
 - No rich Person detail page yet (only list + basic view)
 - No advanced saved filters / views
 - No saved reports
 - `people.country` stores raw MTR value — can be full name ("South Africa") or ISO-2 ("ZA") — not normalised to ISO-2
-- **Open question deferred:** Does `/v1/prop/accounts` return historical challenge accounts (including retired ones) or only active ones? If historical, it may let us recover offer names for the 254 deposit-side CP gap. Diagnose next session before acting.
+- **SyncOurChallengeBuyersJob requires `php -d memory_limit=2G`** — streams all /v1/accounts into memory for CRM enrichment (same constraint as full account sync)
 
 ---
 
