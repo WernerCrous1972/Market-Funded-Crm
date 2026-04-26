@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Brand-First Challenge Buyer Import (2026-04-26)
+
+#### Root cause resolved
+354 our-brand prop/accounts (TTR/QT/MFU challenges) had no corresponding `TradingAccount` in our DB. Root split:
+- **Group 1 (258):** Person IS in DB; prop trading account missing because `trading_accounts` only stores wallet accounts (sourced from deposits/withdrawals), not prop challenge accounts directly.
+- **Group 2 (96):** Person NOT in DB at all — 77 never paid (no deposit = no import trigger), 19 paid and failed but their CRM account is on an excluded branch (e.g. PulseTrade). Their deposits were never imported because person lookup by email returned nothing.
+
+Confirmed via diagnostic: `/v1/accounts/{uuid}` returns 405 (no per-record endpoint). No retired challenges — all 2,018 prop/accounts reference active challenges. The 282 INTERNAL_TRANSFER deposits are correctly classified (offer names all point to live trading accounts).
+
+**Business rule established:** Brand code (TTR/QT/MFU) in challengeName/offer name is the durable ownership signal. Branch is mutable and unreliable. See BRAIN.md §11.
+
+#### Changes
+
+- **Migration `2026_04_26_000001`** — `people.imported_via_challenge` boolean, default false. Flags records created via the brand-first path.
+
+- **`App\Models\Person`** — `imported_via_challenge` added to `$fillable` and casts.
+
+- **`App\Services\MatchTrader\Client::allPropAccounts()`** — new public generator method for paginated `/v1/prop/accounts`.
+
+- **`App\Jobs\Sync\SyncOurChallengeBuyersJob`** — new job. Streams `/v1/prop/accounts`, filters by whole-word brand code, creates missing `TradingAccount` and `Person` records. Enriches new people from a pre-built `/v1/accounts` map (no branch filter); falls back to prop/accounts name+email for ghost records (no CRM entry). Applies email + lead source filters only. Sets `imported_via_challenge = true` on newly created people.
+
+- **`App\Jobs\Sync\SyncAccountsJob`** — added comment to branch filter documenting intentional cross-branch preservation behaviour. No logic change.
+
+- **`App\Console\Commands\MtrSync`** — added `--challenge-buyers-only` flag; `SyncOurChallengeBuyersJob` added to the full sync sequence after `SyncAccountsJob`.
+
+- **Tests** — updated dry-run mock to cover new generators; added `challenge-buyers-only` flag test. 76 tests passing.
+
+- **BRAIN.md §11** — new section: Brand vs Branch — Customer Identity Rule.
+
 ### Added — Prop Challenge Offer Sync + Deposit-Side Classification Fix (2026-04-26)
 
 #### Root cause resolved

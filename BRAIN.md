@@ -306,7 +306,44 @@ See §5 for the full excluded gateway list. Additionally:
 
 ---
 
-## 11. Data Integrity Rules
+## 11. Brand vs Branch — Customer Identity Rule
+
+**Brand code is the durable signal of customer ownership. Branch is mutable.**
+
+MTR branch fields on a person's CRM account can change at any time due to manual operations (e.g. a Market Funded client's record may be moved to PulseTrade or another affiliate branch for operational reasons). The branch field is therefore NOT a reliable indicator of whether a person is a Market Funded customer.
+
+The reliable indicator is a whole-word brand code (`TTR`, `QT`, or `MFU`) appearing in the offer name or challenge name of any transaction, trading account, or prop challenge associated with that person.
+
+### The rule
+> If a person has any deposit, withdrawal, or prop account where the offer/challenge name contains `TTR`, `QT`, or `MFU` as a whole-word brand code, they are a Market Funded customer regardless of their current MTR branch.
+
+### `SyncOurChallengeBuyersJob`
+
+This job implements the brand-first import path:
+
+1. Streams `/v1/prop/accounts` (all paginated prop challenge account records).
+2. Filters to records where `challengeName` contains `TTR`, `QT`, or `MFU` as a whole word.
+3. For each such account: if no matching `TradingAccount` exists in our DB, creates one.
+4. If the person's email is also absent from our `people` table, creates the person:
+   - Fetches full CRM profile from a pre-built `/v1/accounts` map (no branch filter applied).
+   - Falls back to name + email from prop/accounts if no CRM record exists (ghost records).
+   - Sets `imported_via_challenge = true` to flag the import source.
+5. Runs after `SyncAccountsJob` in the nightly sequence.
+
+### `imported_via_challenge` column
+
+Boolean flag on `people` (default `false`). Set `true` only when a person is created by `SyncOurChallengeBuyersJob`. Used for reporting on cross-branch challenge imports. `SyncAccountsJob` never writes this column (it is not in `$personData`), so the flag is preserved if the person later moves to an included branch.
+
+### `SyncAccountsJob` idempotency
+
+`SyncAccountsJob` applies a branch filter before any DB write. People on excluded branches are silently skipped — their existing records are never touched. This is the intentional preservation mechanism for cross-branch-imported people.
+
+### Deferred decision (Phase 3 or later)
+Should the CRM eventually import ALL MTR records regardless of brand or branch (full-coverage CRM)? This would capture affiliate broker clients who have never bought a Market Funded product. **Deferred until after Phase 2.** The current brand-first approach is the correct interim answer.
+
+---
+
+## 12. Data Integrity Rules
 
 - **All money** is stored as `bigint` in cents (multiply by 100 on write, divide by 100 on read). Never use floats.
 - **All timestamps** are `timestamptz` (PostgreSQL timezone-aware). App timezone is `Africa/Johannesburg`.
