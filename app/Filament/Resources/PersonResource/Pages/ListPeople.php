@@ -1,19 +1,21 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Filament\Resources\PersonResource\Pages;
 
 use App\Filament\Resources\PersonResource;
-use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 
 class ListPeople extends ListRecords
 {
     protected static string $resource = PersonResource::class;
 
-    protected function getHeaderActions(): array
+    /**
+     * Eager-load metrics so the deposit/net-deposit columns don't trigger N+1.
+     */
+    protected function getTableQuery(): \Illuminate\Database\Eloquent\Builder
     {
-        return [
-            Actions\CreateAction::make(),
-        ];
+        return parent::getTableQuery()->with(['metrics']);
     }
 }

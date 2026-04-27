@@ -27,6 +27,18 @@ class Activity extends Model
         'STATUS_CHANGED', 'DUPLICATE_DETECTED',
     ];
 
+    // Named constants for use in code (avoids magic strings)
+    public const TYPE_DEPOSIT            = 'DEPOSIT';
+    public const TYPE_WITHDRAWAL         = 'WITHDRAWAL';
+    public const TYPE_NOTE_ADDED         = 'NOTE_ADDED';
+    public const TYPE_TASK_CREATED       = 'TASK_CREATED';
+    public const TYPE_TASK_COMPLETED     = 'TASK_COMPLETED';
+    public const TYPE_STATUS_CHANGED     = 'STATUS_CHANGED';
+    public const TYPE_EMAIL_SENT         = 'EMAIL_SENT';
+    public const TYPE_WHATSAPP_SENT      = 'WHATSAPP_SENT';
+    public const TYPE_CALL_LOG           = 'CALL_LOG';
+    public const TYPE_DUPLICATE_DETECTED = 'DUPLICATE_DETECTED';
+
     protected $fillable = [
         'person_id',
         'type',

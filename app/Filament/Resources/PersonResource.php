@@ -5,203 +5,55 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PersonResource\Pages;
-use App\Filament\Resources\PersonResource\RelationManagers\TradingAccountsRelationManager;
-use App\Filament\Resources\PersonResource\RelationManagers\TransactionsRelationManager;
+use App\Helpers\CountryHelper;
 use App\Models\Person;
+use App\Models\PersonMetric;
+use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Infolists\Components\Grid;
-use Filament\Infolists\Components\Section;
-use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
 class PersonResource extends Resource
 {
     protected static ?string $model = Person::class;
+    protected static ?string $navigationIcon    = 'heroicon-o-users';
+    protected static ?string $navigationLabel   = 'Contacts';
+    protected static ?string $modelLabel        = 'Person';
+    protected static ?string $pluralModelLabel  = 'People';
+    protected static ?int    $navigationSort    = 1;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-users';
-    protected static ?string $navigationLabel = 'Contacts';
-    protected static ?string $navigationGroup = 'CRM';
-    protected static ?int $navigationSort      = 1;
-
-    public static function form(Form $form): Form
-    {
-        // Phase 1: read-only. No create/edit form needed yet.
-        return $form->schema([]);
-    }
-
-    public static function infolist(Infolist $infolist): Infolist
-    {
-        return $infolist->schema([
-            Section::make('Contact Details')
-                ->schema([
-                    Grid::make(2)->schema([
-                        TextEntry::make('full_name')
-                            ->label('Name'),
-                        TextEntry::make('contact_type')
-                            ->label('Type')
-                            ->badge()
-                            ->color(fn (string $state) => match ($state) {
-                                'CLIENT' => 'success',
-                                'LEAD'   => 'warning',
-                                default  => 'gray',
-                            }),
-                        TextEntry::make('email')
-                            ->copyable()
-                            ->icon('heroicon-o-envelope'),
-                        TextEntry::make('phone_e164')
-                            ->label('Phone')
-                            ->copyable()
-                            ->placeholder('—'),
-                        TextEntry::make('country')
-                            ->placeholder('—'),
-                        TextEntry::make('lead_status')
-                            ->label('Lead Status')
-                            ->placeholder('—'),
-                        TextEntry::make('lead_source')
-                            ->label('Lead Source')
-                            ->placeholder('—'),
-                        TextEntry::make('affiliate')
-                            ->placeholder('—'),
-                    ]),
-                ]),
-
-            Section::make('MTR Details')
-                ->schema([
-                    Grid::make(2)->schema([
-                        TextEntry::make('branch')
-                            ->placeholder('—'),
-                        TextEntry::make('account_manager')
-                            ->label('Account Manager')
-                            ->placeholder('—'),
-                        TextEntry::make('became_active_client_at')
-                            ->label('Client Since')
-                            ->dateTime('d M Y')
-                            ->placeholder('—'),
-                        TextEntry::make('last_online_at')
-                            ->label('Last Online')
-                            ->dateTime('d M Y H:i')
-                            ->placeholder('—'),
-                        TextEntry::make('mtr_last_synced_at')
-                            ->label('Last Synced')
-                            ->since()
-                            ->placeholder('—'),
-                    ]),
-                ]),
-
-            Section::make('Activity Timeline')
-                ->schema([
-                    Grid::make(2)->schema([
-                        TextEntry::make('mtr_created_at')
-                            ->label('MTR Created')
-                            ->dateTime('d M Y, H:i')
-                            ->placeholder('—'),
-                        TextEntry::make('mtr_updated_at')
-                            ->label('MTR Updated')
-                            ->dateTime('d M Y, H:i')
-                            ->placeholder('—'),
-                        TextEntry::make('last_external_deposit_at')
-                            ->label('Last Deposit')
-                            ->state(fn (Person $record): ?string =>
-                                $record->last_external_deposit_at?->format('d M Y, H:i')
-                            )
-                            ->placeholder('—'),
-                        TextEntry::make('last_online_at')
-                            ->label('Last Online')
-                            ->dateTime('d M Y, H:i')
-                            ->placeholder('—'),
-                        TextEntry::make('days_since_mtr_updated')
-                            ->label('Days Since Last Update')
-                            ->state(fn (Person $record): string =>
-                                self::formatDaysSince($record->mtr_updated_at)
-                            )
-                            ->color(fn (Person $record): string =>
-                                self::daysSinceColor($record->mtr_updated_at)
-                            ),
-                        TextEntry::make('days_since_last_deposit')
-                            ->label('Days Since Last Deposit')
-                            ->state(fn (Person $record): string =>
-                                self::formatDaysSince($record->last_external_deposit_at)
-                            )
-                            ->color(fn (Person $record): string =>
-                                self::daysSinceColor($record->last_external_deposit_at)
-                            ),
-                        TextEntry::make('days_since_last_online')
-                            ->label('Days Since Last Online')
-                            ->state(fn (Person $record): string =>
-                                self::formatDaysSince($record->last_online_at)
-                            )
-                            ->color(fn (Person $record): string =>
-                                self::daysSinceColor($record->last_online_at)
-                            ),
-                    ]),
-                ]),
-
-            Section::make('Financials')
-                ->schema([
-                    Grid::make(4)->schema([
-                        TextEntry::make('total_deposits')
-                            ->label('External Deposits')
-                            ->state(fn (Person $record): string =>
-                                '$' . number_format($record->total_deposits_cents / 100, 2)
-                            ),
-                        TextEntry::make('total_withdrawals')
-                            ->label('External Withdrawals')
-                            ->state(fn (Person $record): string =>
-                                '$' . number_format($record->total_withdrawals_cents / 100, 2)
-                            ),
-                        TextEntry::make('net_deposits')
-                            ->label('Net Deposits')
-                            ->state(fn (Person $record): string =>
-                                '$' . number_format($record->net_deposits_cents / 100, 2)
-                            ),
-                        TextEntry::make('total_challenge_purchases')
-                            ->label('Challenge Purchases')
-                            ->state(fn (Person $record): string =>
-                                '$' . number_format($record->total_challenge_purchases_cents / 100, 2)
-                            ),
-                    ]),
-                ]),
-
-        ]);
-    }
+    // ── List table ───────────────────────────────────────────────────────────
 
     public static function table(Table $table): Table
     {
         return $table
+            ->defaultSort('mtr_created_at', 'desc')
             ->columns([
                 Tables\Columns\TextColumn::make('mtr_created_at')
                     ->label('MTR Created')
                     ->dateTime('d M Y')
                     ->sortable()
-                    ->placeholder('—'),
+                    ->toggleable(),
 
                 Tables\Columns\TextColumn::make('full_name')
                     ->label('Name')
                     ->searchable(['first_name', 'last_name'])
-                    ->sortable(['last_name'])
-                    ->weight('medium'),
+                    ->sortable(['first_name'])
+                    ->weight('semibold'),
 
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()
                     ->copyable()
-                    ->icon('heroicon-o-envelope'),
+                    ->limit(35),
 
                 Tables\Columns\TextColumn::make('phone_e164')
                     ->label('Phone')
                     ->searchable()
-                    ->copyable()
-                    ->placeholder('—'),
-
-                Tables\Columns\TextColumn::make('country')
-                    ->label('Country')
-                    ->sortable()
-                    ->placeholder('—'),
+                    ->toggleable(),
 
                 Tables\Columns\BadgeColumn::make('contact_type')
                     ->label('Type')
@@ -210,102 +62,508 @@ class PersonResource extends Resource
                         'warning' => 'LEAD',
                     ]),
 
-                Tables\Columns\TextColumn::make('branch')
-                    ->sortable()
+                Tables\Columns\TextColumn::make('country')
+                    ->label('Country')
+                    ->formatStateUsing(fn (?string $state) => CountryHelper::display($state))
                     ->toggleable(),
+
+                Tables\Columns\TextColumn::make('branch')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('lead_source')
                     ->label('Source')
-                    ->sortable()
-                    ->placeholder('—')
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
 
-                Tables\Columns\TextColumn::make('account_manager')
-                    ->label('AM')
-                    ->placeholder('—')
+                Tables\Columns\TextColumn::make('metrics.total_deposits_cents')
+                    ->label('Total Deposits')
+                    ->formatStateUsing(fn (?int $state) => $state !== null ? '$' . number_format($state / 100, 2) : '—')
+                    ->sortable()
+                    ->alignEnd(),
+
+                Tables\Columns\TextColumn::make('metrics.net_deposits_cents')
+                    ->label('Net Deposits')
+                    ->formatStateUsing(fn (?int $state) => $state !== null ? '$' . number_format($state / 100, 2) : '—')
+                    ->sortable()
+                    ->alignEnd(),
+
+                Tables\Columns\TextColumn::make('metrics.last_deposit_at')
+                    ->label('Last Deposit')
+                    ->since()
+                    ->sortable()
                     ->toggleable(),
 
                 Tables\Columns\TextColumn::make('became_active_client_at')
                     ->label('Client Since')
                     ->date('d M Y')
                     ->sortable()
-                    ->placeholder('—')
-                    ->toggleable(),
-
-                Tables\Columns\TextColumn::make('mtr_last_synced_at')
-                    ->label('Synced')
-                    ->since()
-                    ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->defaultSort('mtr_created_at', 'desc')
             ->filters([
-                SelectFilter::make('contact_type')
+                Tables\Filters\SelectFilter::make('contact_type')
                     ->label('Type')
                     ->options([
-                        'LEAD'   => 'Leads',
-                        'CLIENT' => 'Clients',
+                        'LEAD'   => 'Lead',
+                        'CLIENT' => 'Client',
                     ]),
 
-                SelectFilter::make('branch')
-                    ->options(
-                        \App\Models\Person::distinct()
-                            ->pluck('branch', 'branch')
-                            ->filter()
-                            ->sort()
-                            ->toArray()
-                    ),
+                Tables\Filters\SelectFilter::make('branch')
+                    ->options(fn () => Person::distinct()->pluck('branch', 'branch')->filter()->toArray())
+                    ->searchable(),
 
-                SelectFilter::make('lead_source')
+                Tables\Filters\SelectFilter::make('lead_source')
                     ->label('Lead Source')
-                    ->options(
-                        \App\Models\Person::distinct()
-                            ->pluck('lead_source', 'lead_source')
-                            ->filter()
-                            ->sort()
-                            ->toArray()
+                    ->options(fn () => Person::distinct()->pluck('lead_source', 'lead_source')->filter()->toArray())
+                    ->searchable(),
+
+                // Pipeline filter via metrics flags (fast — no join needed)
+                Tables\Filters\Filter::make('has_markets')
+                    ->label('MFU Markets')
+                    ->query(fn (Builder $q) => $q->whereHas('metrics', fn ($m) => $m->where('has_markets', true))),
+
+                Tables\Filters\Filter::make('has_capital')
+                    ->label('MFU Capital')
+                    ->query(fn (Builder $q) => $q->whereHas('metrics', fn ($m) => $m->where('has_capital', true))),
+
+                Tables\Filters\Filter::make('has_academy')
+                    ->label('MFU Academy')
+                    ->query(fn (Builder $q) => $q->whereHas('metrics', fn ($m) => $m->where('has_academy', true))),
+
+                // ── Operational saved filters ──────────────────────────────
+
+                Tables\Filters\Filter::make('inactive_traders')
+                    ->label('📉 Dropped volume (30d)')
+                    ->query(fn (Builder $q) => $q
+                        ->where('contact_type', 'CLIENT')
+                        ->whereHas('metrics', fn ($m) => $m
+                            ->where('days_since_last_deposit', '>', 30)
+                            ->where('total_deposits_cents', '>', 0)
+                        )
                     ),
 
-                SelectFilter::make('pipeline')
-                    ->label('Pipeline')
-                    ->options([
-                        'MFU_CAPITAL'  => 'MFU Capital',
-                        'MFU_ACADEMY'  => 'MFU Academy',
-                        'MFU_MARKETS'  => 'MFU Markets',
-                    ])
-                    ->query(fn (Builder $query, array $data) =>
-                        $data['value']
-                            ? $query->whereHas('tradingAccounts', fn (Builder $q) =>
-                                $q->where('pipeline', $data['value'])
-                            )
-                            : $query
+                Tables\Filters\Filter::make('unconverted_leads')
+                    ->label('⏳ Unconverted 7d+')
+                    ->query(fn (Builder $q) => $q
+                        ->where('contact_type', 'LEAD')
+                        ->where('mtr_created_at', '<', now()->subDays(7))
+                        ->whereHas('metrics', fn ($m) => $m->where('deposit_count', 0))
                     ),
 
-                Filter::make('became_client_this_month')
-                    ->label('New clients this month')
-                    ->query(fn (Builder $query) =>
-                        $query->where('contact_type', 'CLIENT')
-                            ->where('became_active_client_at', '>=', now()->startOfMonth())
+                Tables\Filters\Filter::make('dormant_with_equity')
+                    ->label('💤 Dormant (10d+ no login)')
+                    ->query(fn (Builder $q) => $q
+                        ->where('contact_type', 'CLIENT')
+                        ->whereHas('metrics', fn ($m) => $m
+                            ->where('days_since_last_login', '>', 10)
+                            ->where('net_deposits_cents', '>', 500_000) // > $5,000
+                        )
                     ),
 
-                Filter::make('not_contacted')
-                    ->label('Not yet contacted')
-                    ->query(fn (Builder $query) => $query->where('notes_contacted', false)),
+                Tables\Filters\Filter::make('new_this_month')
+                    ->label('🆕 New this month')
+                    ->query(fn (Builder $q) => $q->where('mtr_created_at', '>=', now()->startOfMonth())),
+
+                Tables\Filters\Filter::make('not_contacted')
+                    ->label('📵 Not contacted')
+                    ->query(fn (Builder $q) => $q->where('notes_contacted', false)),
             ])
+            ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
             ->actions([
                 Tables\Actions\ViewAction::make(),
             ])
-            ->bulkActions([])
-            ->searchPlaceholder('Search name, email or phone…');
+            ->bulkActions([]);
     }
 
-    public static function getRelations(): array
+    // ── Infolist (detail view) ────────────────────────────────────────────────
+
+    public static function infolist(Infolist $infolist): Infolist
     {
-        return [
-            TradingAccountsRelationManager::class,
-            TransactionsRelationManager::class,
-        ];
+        return $infolist
+            ->schema([
+                // Header section
+                Infolists\Components\Section::make()
+                    ->schema([
+                        Infolists\Components\Grid::make(4)
+                            ->schema([
+                                Infolists\Components\Group::make([
+                                    Infolists\Components\TextEntry::make('full_name')
+                                        ->label('')
+                                        ->size(Infolists\Components\TextEntry\TextEntrySize::Large)
+                                        ->weight('bold'),
+
+                                    Infolists\Components\TextEntry::make('email')
+                                        ->label('')
+                                        ->copyable()
+                                        ->icon('heroicon-o-envelope'),
+
+                                    // Phone with WhatsApp link
+                                    Infolists\Components\TextEntry::make('phone_e164')
+                                        ->label('')
+                                        ->icon('heroicon-o-phone')
+                                        ->formatStateUsing(function (Person $record) {
+                                            if (! $record->phone_e164) return '—';
+                                            $wa = $record->whatsapp_link;
+                                            if ($wa) {
+                                                return "<a href=\"{$wa}\" target=\"_blank\" class=\"text-green-600 hover:underline\">{$record->phone_e164} 💬</a>";
+                                            }
+                                            return $record->phone_e164;
+                                        })
+                                        ->html(),
+                                ])->columnSpan(2),
+
+                                Infolists\Components\Group::make([
+                                    Infolists\Components\TextEntry::make('country_display')
+                                        ->label('Country')
+                                        ->icon('heroicon-o-globe-alt'),
+
+                                    Infolists\Components\TextEntry::make('contact_type')
+                                        ->label('Type')
+                                        ->badge()
+                                        ->color(fn (string $state) => match ($state) {
+                                            'CLIENT' => 'success',
+                                            'LEAD'   => 'warning',
+                                            default  => 'gray',
+                                        }),
+
+                                    Infolists\Components\TextEntry::make('branch')
+                                        ->label('Branch'),
+                                ])->columnSpan(1),
+
+                                Infolists\Components\Group::make([
+                                    Infolists\Components\TextEntry::make('account_manager')
+                                        ->label('Account Manager')
+                                        ->icon('heroicon-o-user-circle')
+                                        ->placeholder('Unassigned'),
+
+                                    Infolists\Components\TextEntry::make('lead_source')
+                                        ->label('Lead Source')
+                                        ->placeholder('—'),
+
+                                    Infolists\Components\TextEntry::make('lead_status')
+                                        ->label('Lead Status')
+                                        ->placeholder('—'),
+                                ])->columnSpan(1),
+                            ]),
+
+                        // Pipeline pills
+                        Infolists\Components\TextEntry::make('pipelines')
+                            ->label('Segments')
+                            ->badge()
+                            ->separator(',')
+                            ->formatStateUsing(fn (string $state) => match ($state) {
+                                'MFU_MARKETS' => '📈 MFU Markets',
+                                'MFU_CAPITAL' => '🏆 MFU Capital',
+                                'MFU_ACADEMY' => '🎓 MFU Academy',
+                                default        => $state,
+                            })
+                            ->color(fn (string $state) => match ($state) {
+                                'MFU_MARKETS' => 'info',
+                                'MFU_CAPITAL' => 'success',
+                                'MFU_ACADEMY' => 'warning',
+                                default        => 'gray',
+                            }),
+                    ]),
+
+                // Key stats row
+                Infolists\Components\Section::make('Financial Summary')
+                    ->schema([
+                        Infolists\Components\Grid::make(6)
+                            ->schema([
+                                Infolists\Components\TextEntry::make('metrics.total_deposits_cents')
+                                    ->label('Total Deposits')
+                                    ->formatStateUsing(fn (?int $state) => '$' . number_format(($state ?? 0) / 100, 2))
+                                    ->icon('heroicon-o-arrow-down-circle')
+                                    ->iconColor('success'),
+
+                                Infolists\Components\TextEntry::make('metrics.total_withdrawals_cents')
+                                    ->label('Total Withdrawals')
+                                    ->formatStateUsing(fn (?int $state) => '$' . number_format(($state ?? 0) / 100, 2))
+                                    ->icon('heroicon-o-arrow-up-circle')
+                                    ->iconColor('danger'),
+
+                                Infolists\Components\TextEntry::make('metrics.net_deposits_cents')
+                                    ->label('Net Deposits')
+                                    ->formatStateUsing(function (?int $state) {
+                                        $val = ($state ?? 0) / 100;
+                                        $fmt = '$' . number_format(abs($val), 2);
+                                        return $val < 0 ? "-{$fmt}" : $fmt;
+                                    })
+                                    ->icon('heroicon-o-banknotes'),
+
+                                Infolists\Components\TextEntry::make('metrics.total_challenge_purchases_cents')
+                                    ->label('Challenge Purchases')
+                                    ->formatStateUsing(fn (?int $state) => '$' . number_format(($state ?? 0) / 100, 2))
+                                    ->icon('heroicon-o-trophy')
+                                    ->iconColor('warning'),
+
+                                Infolists\Components\TextEntry::make('metrics.days_since_last_deposit')
+                                    ->label('Days Since Deposit')
+                                    ->formatStateUsing(fn (?int $state) => $state !== null ? "{$state}d ago" : 'Never')
+                                    ->icon('heroicon-o-calendar')
+                                    ->color(fn (?int $state) => match (true) {
+                                        $state === null    => 'gray',
+                                        $state > 30        => 'danger',
+                                        $state > 14        => 'warning',
+                                        default            => 'success',
+                                    }),
+
+                                Infolists\Components\TextEntry::make('metrics.days_since_last_login')
+                                    ->label('Days Since Login')
+                                    ->formatStateUsing(fn (?int $state) => $state !== null ? "{$state}d ago" : 'Never')
+                                    ->icon('heroicon-o-clock')
+                                    ->color(fn (?int $state) => match (true) {
+                                        $state === null    => 'gray',
+                                        $state > 14        => 'danger',
+                                        $state > 7         => 'warning',
+                                        default            => 'success',
+                                    }),
+                            ]),
+                    ]),
+
+                // Main content — tabs
+                Infolists\Components\Tabs::make('PersonTabs')
+                    ->tabs([
+
+                        // ── Activity timeline ────────────────────────────────
+                        Infolists\Components\Tabs\Tab::make('Activity')
+                            ->icon('heroicon-o-clock')
+                            ->schema([
+                                Infolists\Components\RepeatableEntry::make('activities')
+                                    ->label('')
+                                    ->schema([
+                                        Infolists\Components\Grid::make(12)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('type')
+                                                    ->label('')
+                                                    ->badge()
+                                                    ->columnSpan(2)
+                                                    ->color(fn (string $state) => match ($state) {
+                                                        'DEPOSIT'          => 'success',
+                                                        'WITHDRAWAL'       => 'danger',
+                                                        'NOTE_ADDED'       => 'info',
+                                                        'TASK_CREATED'     => 'warning',
+                                                        'TASK_COMPLETED'   => 'success',
+                                                        'STATUS_CHANGED'   => 'primary',
+                                                        'EMAIL_SENT'       => 'info',
+                                                        'WHATSAPP_SENT'    => 'success',
+                                                        'DUPLICATE_DETECTED' => 'danger',
+                                                        default            => 'gray',
+                                                    })
+                                                    ->formatStateUsing(fn (string $state) => match ($state) {
+                                                        'DEPOSIT'            => '↓ Deposit',
+                                                        'WITHDRAWAL'         => '↑ Withdrawal',
+                                                        'NOTE_ADDED'         => '📝 Note',
+                                                        'TASK_CREATED'       => '✅ Task',
+                                                        'TASK_COMPLETED'     => '✔ Done',
+                                                        'STATUS_CHANGED'     => '🔄 Status',
+                                                        'EMAIL_SENT'         => '✉ Email',
+                                                        'WHATSAPP_SENT'      => '💬 WhatsApp',
+                                                        'CALL_LOG'           => '📞 Call',
+                                                        'DUPLICATE_DETECTED' => '⚠ Duplicate',
+                                                        default              => $state,
+                                                    }),
+
+                                                Infolists\Components\TextEntry::make('description')
+                                                    ->label('')
+                                                    ->columnSpan(8),
+
+                                                Infolists\Components\TextEntry::make('occurred_at')
+                                                    ->label('')
+                                                    ->dateTime('d M Y H:i')
+                                                    ->columnSpan(2)
+                                                    ->color('gray'),
+                                            ]),
+                                    ])
+                                    ->contained(false),
+                            ]),
+
+                        // ── Transactions ─────────────────────────────────────
+                        Infolists\Components\Tabs\Tab::make('Transactions')
+                            ->icon('heroicon-o-banknotes')
+                            ->schema([
+                                Infolists\Components\RepeatableEntry::make('transactions')
+                                    ->label('')
+                                    ->schema([
+                                        Infolists\Components\Grid::make(10)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('occurred_at')
+                                                    ->label('Date')
+                                                    ->dateTime('d M Y')
+                                                    ->columnSpan(2),
+
+                                                Infolists\Components\TextEntry::make('type')
+                                                    ->label('Type')
+                                                    ->badge()
+                                                    ->columnSpan(1)
+                                                    ->color(fn (string $state) => $state === 'DEPOSIT' ? 'success' : 'danger'),
+
+                                                Infolists\Components\TextEntry::make('category')
+                                                    ->label('Category')
+                                                    ->badge()
+                                                    ->columnSpan(2)
+                                                    ->color(fn (string $state) => match ($state) {
+                                                        'EXTERNAL_DEPOSIT'     => 'success',
+                                                        'EXTERNAL_WITHDRAWAL'  => 'danger',
+                                                        'CHALLENGE_PURCHASE'   => 'warning',
+                                                        'INTERNAL_TRANSFER'    => 'gray',
+                                                        'CHALLENGE_REFUND'     => 'info',
+                                                        default                => 'gray',
+                                                    }),
+
+                                                Infolists\Components\TextEntry::make('amount_cents')
+                                                    ->label('Amount')
+                                                    ->formatStateUsing(fn (int $state) => '$' . number_format($state / 100, 2))
+                                                    ->columnSpan(2)
+                                                    ->alignEnd()
+                                                    ->weight('semibold'),
+
+                                                Infolists\Components\TextEntry::make('gateway_name')
+                                                    ->label('Gateway')
+                                                    ->columnSpan(3)
+                                                    ->color('gray'),
+                                            ]),
+                                    ])
+                                    ->contained(false),
+                            ]),
+
+                        // ── Notes ─────────────────────────────────────────────
+                        Infolists\Components\Tabs\Tab::make('Notes')
+                            ->icon('heroicon-o-document-text')
+                            ->schema([
+                                Infolists\Components\RepeatableEntry::make('notes')
+                                    ->label('')
+                                    ->schema([
+                                        Infolists\Components\Grid::make(12)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('created_at')
+                                                    ->label('')
+                                                    ->dateTime('d M Y H:i')
+                                                    ->columnSpan(2)
+                                                    ->color('gray'),
+
+                                                Infolists\Components\TextEntry::make('title')
+                                                    ->label('')
+                                                    ->weight('semibold')
+                                                    ->placeholder('Untitled')
+                                                    ->columnSpan(10),
+
+                                                Infolists\Components\TextEntry::make('body')
+                                                    ->label('')
+                                                    ->markdown()
+                                                    ->columnSpan(12),
+                                            ]),
+                                    ])
+                                    ->contained(false),
+                            ]),
+
+                        // ── Tasks ─────────────────────────────────────────────
+                        Infolists\Components\Tabs\Tab::make('Tasks')
+                            ->icon('heroicon-o-check-circle')
+                            ->schema([
+                                Infolists\Components\RepeatableEntry::make('tasks')
+                                    ->label('')
+                                    ->schema([
+                                        Infolists\Components\Grid::make(12)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('priority')
+                                                    ->label('')
+                                                    ->badge()
+                                                    ->columnSpan(1)
+                                                    ->color(fn (string $state) => match ($state) {
+                                                        'URGENT' => 'danger',
+                                                        'HIGH'   => 'warning',
+                                                        'MEDIUM' => 'info',
+                                                        'LOW'    => 'gray',
+                                                        default  => 'gray',
+                                                    }),
+
+                                                Infolists\Components\TextEntry::make('title')
+                                                    ->label('')
+                                                    ->weight('semibold')
+                                                    ->columnSpan(6),
+
+                                                Infolists\Components\TextEntry::make('due_at')
+                                                    ->label('Due')
+                                                    ->dateTime('d M Y')
+                                                    ->columnSpan(2)
+                                                    ->color(fn ($record) => $record?->due_at?->isPast() && ! $record->completed_at
+                                                        ? 'danger' : 'gray'),
+
+                                                Infolists\Components\TextEntry::make('completed_at')
+                                                    ->label('Status')
+                                                    ->formatStateUsing(fn ($state) => $state ? '✔ Done' : 'Pending')
+                                                    ->columnSpan(2)
+                                                    ->color(fn ($state) => $state ? 'success' : 'warning'),
+
+                                                Infolists\Components\TextEntry::make('description')
+                                                    ->label('')
+                                                    ->columnSpan(12)
+                                                    ->color('gray')
+                                                    ->placeholder(''),
+                                            ]),
+                                    ])
+                                    ->contained(false),
+                            ]),
+
+                        // ── Trading Accounts ──────────────────────────────────
+                        Infolists\Components\Tabs\Tab::make('Trading Accounts')
+                            ->icon('heroicon-o-chart-bar')
+                            ->schema([
+                                Infolists\Components\RepeatableEntry::make('tradingAccounts')
+                                    ->label('')
+                                    ->schema([
+                                        Infolists\Components\Grid::make(8)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('mtr_login')
+                                                    ->label('Login')
+                                                    ->weight('semibold')
+                                                    ->columnSpan(1),
+
+                                                Infolists\Components\TextEntry::make('pipeline')
+                                                    ->label('Pipeline')
+                                                    ->badge()
+                                                    ->columnSpan(2)
+                                                    ->color(fn (string $state) => match ($state) {
+                                                        'MFU_MARKETS' => 'info',
+                                                        'MFU_CAPITAL' => 'success',
+                                                        'MFU_ACADEMY' => 'warning',
+                                                        default        => 'gray',
+                                                    }),
+
+                                                Infolists\Components\TextEntry::make('is_demo')
+                                                    ->label('Mode')
+                                                    ->formatStateUsing(fn (bool $state) => $state ? 'Demo' : 'Live')
+                                                    ->badge()
+                                                    ->columnSpan(1)
+                                                    ->color(fn (bool $state) => $state ? 'gray' : 'success'),
+
+                                                Infolists\Components\TextEntry::make('is_active')
+                                                    ->label('Status')
+                                                    ->formatStateUsing(fn (bool $state) => $state ? 'Active' : 'Inactive')
+                                                    ->badge()
+                                                    ->columnSpan(1)
+                                                    ->color(fn (bool $state) => $state ? 'success' : 'gray'),
+
+                                                Infolists\Components\TextEntry::make('opened_at')
+                                                    ->label('Opened')
+                                                    ->date('d M Y')
+                                                    ->columnSpan(2),
+                                            ]),
+                                    ])
+                                    ->contained(false),
+                            ]),
+                    ])
+                    ->columnSpanFull(),
+            ]);
     }
+
+    // ── Form (create/edit — disabled) ─────────────────────────────────────────
+
+    public static function form(Form $form): Form
+    {
+        return $form->schema([]);
+    }
+
+    // ── Pages ────────────────────────────────────────────────────────────────
 
     public static function getPages(): array
     {
@@ -317,38 +575,6 @@ class PersonResource extends Resource
 
     public static function canCreate(): bool
     {
-        return false; // Phase 1 is read-only
-    }
-
-    // ── "Days since" helpers ─────────────────────────────────────────────────
-
-    private static function formatDaysSince(?\Carbon\Carbon $date): string
-    {
-        if ($date === null) {
-            return '—';
-        }
-
-        $days = (int) $date->diffInDays(now());
-
-        return match (true) {
-            $days === 0 => 'Today',
-            $days === 1 => 'Yesterday',
-            default     => "{$days} days ago",
-        };
-    }
-
-    private static function daysSinceColor(?\Carbon\Carbon $date): string
-    {
-        if ($date === null) {
-            return 'gray';
-        }
-
-        $days = (int) $date->diffInDays(now());
-
-        return match (true) {
-            $days > 30 => 'danger',
-            $days > 14 => 'warning',
-            default    => 'success',
-        };
+        return false;
     }
 }

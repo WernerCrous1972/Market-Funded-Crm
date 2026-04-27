@@ -4,20 +4,17 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Builder;
+use App\Helpers\CountryHelper;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Person extends Model
 {
     use HasFactory, HasUuids;
-
-    public $incrementing = false;
-
-    protected $keyType = 'string';
 
     protected $fillable = [
         'first_name',
@@ -42,20 +39,17 @@ class Person extends Model
         'imported_via_challenge',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'became_active_client_at' => 'datetime',
-            'last_online_at'          => 'datetime',
-            'mtr_last_synced_at'      => 'datetime',
-            'mtr_created_at'          => 'datetime',
-            'mtr_updated_at'          => 'datetime',
-            'notes_contacted'         => 'boolean',
-            'imported_via_challenge'  => 'boolean',
-        ];
-    }
+    protected $casts = [
+        'became_active_client_at' => 'datetime',
+        'last_online_at'          => 'datetime',
+        'mtr_last_synced_at'      => 'datetime',
+        'mtr_created_at'          => 'datetime',
+        'mtr_updated_at'          => 'datetime',
+        'notes_contacted'         => 'boolean',
+        'imported_via_challenge'  => 'boolean',
+    ];
 
-    // ── Relationships ────────────────────────────────────────────────────────
+    // ── Relationships ──────────────────────────────────────────────────────────
 
     public function tradingAccounts(): HasMany
     {
@@ -82,6 +76,11 @@ class Person extends Model
         return $this->hasMany(Task::class)->orderBy('due_at');
     }
 
+    public function metrics(): HasOne
+    {
+        return $this->hasOne(PersonMetric::class);
+    }
+
     public function duplicateOf(): BelongsTo
     {
         return $this->belongsTo(Person::class, 'duplicate_of_person_id');
@@ -92,104 +91,112 @@ class Person extends Model
         return $this->hasMany(Person::class, 'duplicate_of_person_id');
     }
 
-    // ── Scopes ───────────────────────────────────────────────────────────────
+    // ── Scopes ────────────────────────────────────────────────────────────────
 
-    public function scopeLeads(Builder $query): Builder
+    public function scopeLeads($query)
     {
         return $query->where('contact_type', 'LEAD');
     }
 
-    public function scopeClients(Builder $query): Builder
+    public function scopeClients($query)
     {
         return $query->where('contact_type', 'CLIENT');
     }
 
-    public function scopeActive(Builder $query): Builder
+    public function scopeActive($query)
     {
-        return $query->where('contact_type', 'CLIENT')
-            ->whereNotNull('became_active_client_at');
+        return $query->whereNotNull('became_active_client_at');
     }
 
-    public function scopeByPipeline(Builder $query, string $pipeline): Builder
+    public function scopeByPipeline($query, string $pipeline)
     {
-        return $query->whereHas('tradingAccounts', fn (Builder $q) =>
-            $q->where('pipeline', $pipeline)
-        );
+        return $query->whereHas('tradingAccounts', fn ($q) => $q->where('pipeline', $pipeline));
     }
 
-    public function scopeByBranch(Builder $query, string $branch): Builder
+    public function scopeInactiveSince($query, int $days)
     {
-        return $query->where('branch', $branch);
+        return $query->where('last_online_at', '<', now()->subDays($days));
     }
 
-    public function scopeInactiveSince(Builder $query, int $days): Builder
-    {
-        return $query->where('last_online_at', '<', now()->subDays($days))
-            ->orWhereNull('last_online_at');
-    }
-
-    // ── Computed attributes ──────────────────────────────────────────────────
-
-    public function getFullNameAttribute(): string
-    {
-        return trim("{$this->first_name} {$this->last_name}");
-    }
-
-    public function getTotalDepositsCentsAttribute(): int
-    {
-        return (int) $this->transactions()
-            ->where('category', 'EXTERNAL_DEPOSIT')
-            ->sum('amount_cents');
-    }
-
-    public function getTotalWithdrawalsCentsAttribute(): int
-    {
-        return (int) $this->transactions()
-            ->where('category', 'EXTERNAL_WITHDRAWAL')
-            ->sum('amount_cents');
-    }
-
-    public function getTotalChallengePurchasesCentsAttribute(): int
-    {
-        return (int) $this->transactions()
-            ->where('category', 'CHALLENGE_PURCHASE')
-            ->sum('amount_cents');
-    }
-
-    public function getNetDepositsCentsAttribute(): int
-    {
-        return $this->total_deposits_cents - $this->total_withdrawals_cents;
-    }
-
-    public function getLastExternalDepositAtAttribute(): ?\Carbon\Carbon
-    {
-        $occurred = $this->transactions()
-            ->where('category', 'EXTERNAL_DEPOSIT')
-            ->max('occurred_at');
-
-        return $occurred ? \Carbon\Carbon::parse($occurred) : null;
-    }
-
-    public function getDaysSinceLastLoginAttribute(): ?int
-    {
-        return $this->last_online_at
-            ? (int) $this->last_online_at->diffInDays(now())
-            : null;
-    }
-
-    // ── Mutators ─────────────────────────────────────────────────────────────
+    // ── Mutators ──────────────────────────────────────────────────────────────
 
     public function setEmailAttribute(string $value): void
     {
         $this->attributes['email'] = strtolower(trim($value));
     }
 
-    // ── Upgrade-only contact_type guard ──────────────────────────────────────
+    // ── Accessors ─────────────────────────────────────────────────────────────
 
-    public function upgradeToClient(): void
+    public function getFullNameAttribute(): string
     {
-        if ($this->contact_type !== 'CLIENT') {
-            $this->contact_type = 'CLIENT';
+        return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    /**
+     * Returns the pipelines this person has traded in, e.g. ['MFU_MARKETS', 'MFU_CAPITAL']
+     * Reads from person_metrics if loaded, otherwise queries trading_accounts.
+     */
+    public function getPipelinesAttribute(): array
+    {
+        if ($this->relationLoaded('metrics') && $this->metrics) {
+            $pipes = [];
+            if ($this->metrics->has_markets) $pipes[] = 'MFU_MARKETS';
+            if ($this->metrics->has_capital) $pipes[] = 'MFU_CAPITAL';
+            if ($this->metrics->has_academy) $pipes[] = 'MFU_ACADEMY';
+            return $pipes;
         }
+
+        return $this->tradingAccounts()
+            ->distinct()
+            ->pluck('pipeline')
+            ->filter()
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * Country flag + name for display.
+     */
+    public function getCountryDisplayAttribute(): string
+    {
+        return CountryHelper::display($this->country);
+    }
+
+    /**
+     * WhatsApp link for the person's phone number.
+     */
+    public function getWhatsappLinkAttribute(): ?string
+    {
+        if (! $this->phone_e164) {
+            return null;
+        }
+
+        $digits = preg_replace('/[^0-9]/', '', $this->phone_e164);
+
+        return "https://wa.me/{$digits}";
+    }
+
+    // ── Business Logic ────────────────────────────────────────────────────────
+
+    /**
+     * Upgrade a LEAD to CLIENT. Enforces upgrade-only rule.
+     * Returns true if an upgrade occurred.
+     */
+    public function upgradeToClient(): bool
+    {
+        if ($this->contact_type === 'CLIENT') {
+            return false;
+        }
+
+        $this->contact_type = 'CLIENT';
+        $this->save();
+
+        Activity::record(
+            personId: $this->id,
+            type: Activity::TYPE_STATUS_CHANGED,
+            description: "Upgraded to CLIENT",
+        );
+
+        return true;
     }
 }
