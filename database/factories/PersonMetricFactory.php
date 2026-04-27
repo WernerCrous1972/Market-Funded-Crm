@@ -37,6 +37,10 @@ class PersonMetricFactory extends Factory
             'withdrawals_mtd_cents'           => 0,
             'challenge_purchases_mtd_cents'   => 0,
             'refreshed_at'                    => now(),
+            'health_score'                    => null,
+            'health_grade'                    => null,
+            'health_score_breakdown'          => null,
+            'health_score_calculated_at'      => null,
         ];
     }
 }

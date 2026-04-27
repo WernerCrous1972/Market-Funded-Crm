@@ -15,6 +15,7 @@ use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use App\Services\Health\HealthScorer;
 use Illuminate\Database\Eloquent\Builder;
 
 class PersonResource extends Resource
@@ -85,6 +86,21 @@ class PersonResource extends Resource
                     ->formatStateUsing(fn (?int $state) => $state !== null ? '$' . number_format($state / 100, 2) : '—')
                     ->sortable()
                     ->alignEnd(),
+
+                Tables\Columns\TextColumn::make('metrics.health_score')
+                    ->label('Health')
+                    ->formatStateUsing(fn (?int $state) => $state !== null ? $state : '—')
+                    ->color(fn (?int $state) => match (true) {
+                        $state === null  => 'gray',
+                        $state >= 80     => 'success',
+                        $state >= 65     => 'info',
+                        $state >= 50     => 'gray',
+                        $state >= 35     => 'warning',
+                        default          => 'danger',
+                    })
+                    ->sortable()
+                    ->alignEnd()
+                    ->toggleable(),
 
                 Tables\Columns\TextColumn::make('metrics.last_deposit_at')
                     ->label('Last Deposit')
@@ -165,6 +181,26 @@ class PersonResource extends Resource
                 Tables\Filters\Filter::make('not_contacted')
                     ->label('📵 Not contacted')
                     ->query(fn (Builder $q) => $q->where('notes_contacted', false)),
+
+                Tables\Filters\Filter::make('at_risk')
+                    ->label('🚨 At Risk (score < 40)')
+                    ->query(fn (Builder $q) => $q
+                        ->where('contact_type', 'CLIENT')
+                        ->whereHas('metrics', fn ($m) => $m
+                            ->whereNotNull('health_score')
+                            ->where('health_score', '<', 40)
+                        )
+                    ),
+
+                Tables\Filters\Filter::make('critical')
+                    ->label('💀 Critical (score < 20)')
+                    ->query(fn (Builder $q) => $q
+                        ->where('contact_type', 'CLIENT')
+                        ->whereHas('metrics', fn ($m) => $m
+                            ->whereNotNull('health_score')
+                            ->where('health_score', '<', 20)
+                        )
+                    ),
             ])
             ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
             ->actions([
@@ -318,6 +354,60 @@ class PersonResource extends Resource
                                     }),
                             ]),
                     ]),
+
+                // Health score
+                Infolists\Components\Section::make('Health Score')
+                    ->schema([
+                        Infolists\Components\Grid::make(5)
+                            ->schema([
+                                Infolists\Components\TextEntry::make('metrics.health_score')
+                                    ->label('Score')
+                                    ->size(Infolists\Components\TextEntry\TextEntrySize::Large)
+                                    ->weight('bold')
+                                    ->formatStateUsing(fn (?int $state) => $state !== null ? "{$state} / 100" : 'Not scored')
+                                    ->color(fn (?int $state) => match (true) {
+                                        $state === null  => 'gray',
+                                        $state >= 80     => 'success',
+                                        $state >= 65     => 'info',
+                                        $state >= 50     => 'gray',
+                                        $state >= 35     => 'warning',
+                                        default          => 'danger',
+                                    }),
+
+                                Infolists\Components\TextEntry::make('metrics.health_grade')
+                                    ->label('Grade')
+                                    ->badge()
+                                    ->formatStateUsing(fn (?string $state) => $state
+                                        ? $state . ' — ' . HealthScorer::gradeLabel($state)
+                                        : 'Unscored'
+                                    )
+                                    ->color(fn (?string $state) => $state
+                                        ? HealthScorer::gradeColor($state)
+                                        : 'gray'
+                                    ),
+
+                                Infolists\Components\TextEntry::make('metrics.health_score_calculated_at')
+                                    ->label('Last Calculated')
+                                    ->since()
+                                    ->placeholder('Never'),
+
+                                Infolists\Components\TextEntry::make('metrics.health_score_breakdown')
+                                    ->label('Score Breakdown')
+                                    ->columnSpan(2)
+                                    ->formatStateUsing(function ($state) {
+                                        if (! $state) return 'No breakdown available';
+                                        $lines = [];
+                                        foreach ($state as $factor) {
+                                            if ($factor['pending'] ?? false) continue;
+                                            $sign    = $factor['points'] >= 0 ? '+' : '';
+                                            $lines[] = "{$factor['label']}: {$sign}{$factor['points']} pts — {$factor['detail']}";
+                                        }
+                                        return implode("\n", $lines) ?: 'No active factors';
+                                    }),
+                            ]),
+                    ])
+                    ->collapsible()
+                    ->collapsed(fn ($record) => ($record->metrics?->health_score ?? 100) >= 50),
 
                 // Main content — tabs
                 Infolists\Components\Tabs::make('PersonTabs')

@@ -37,6 +37,10 @@ class PersonMetric extends Model
         'withdrawals_mtd_cents',
         'challenge_purchases_mtd_cents',
         'refreshed_at',
+        'health_score',
+        'health_grade',
+        'health_score_breakdown',
+        'health_score_calculated_at',
     ];
 
     protected $casts = [
@@ -60,6 +64,10 @@ class PersonMetric extends Model
         'withdrawals_mtd_cents'           => 'integer',
         'challenge_purchases_mtd_cents'   => 'integer',
         'refreshed_at'                    => 'datetime',
+        'health_score'                    => 'integer',
+        'health_grade'                    => 'string',
+        'health_score_breakdown'          => 'array',
+        'health_score_calculated_at'      => 'datetime',
     ];
 
     // ── Relationships ─────────────────────────────────────────────────────────

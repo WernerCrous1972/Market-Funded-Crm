@@ -22,6 +22,12 @@ Schedule::command('metrics:refresh --sync')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Calculate health scores daily at 01:30 SAST (after metrics:refresh at 01:00)
+Schedule::job(new \App\Jobs\Metrics\CalculateHealthScoresJob())
+    ->dailyAt('01:30')
+    ->timezone('Africa/Johannesburg')
+    ->withoutOverlapping();
+
 // Incremental sync every 15 minutes between 06:00–22:00 SAST
 Schedule::command('mtr:sync --incremental')
     ->everyFifteenMinutes()
