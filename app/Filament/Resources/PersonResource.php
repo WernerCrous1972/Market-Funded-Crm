@@ -391,13 +391,14 @@ class PersonResource extends Resource
                                     ->since()
                                     ->placeholder('Never'),
 
-                                Infolists\Components\TextEntry::make('metrics.health_score_breakdown')
+                                Infolists\Components\TextEntry::make('health_breakdown')
                                     ->label('Score Breakdown')
                                     ->columnSpan(2)
-                                    ->formatStateUsing(function ($state) {
-                                        if (! $state) return 'No breakdown available';
+                                    ->getStateUsing(function ($record) {
+                                        $breakdown = $record->metrics?->health_score_breakdown;
+                                        if (! $breakdown) return 'No breakdown available';
                                         $lines = [];
-                                        foreach ($state as $factor) {
+                                        foreach ($breakdown as $factor) {
                                             if ($factor['pending'] ?? false) continue;
                                             $sign    = $factor['points'] >= 0 ? '+' : '';
                                             $lines[] = "{$factor['label']}: {$sign}{$factor['points']} pts — {$factor['detail']}";
