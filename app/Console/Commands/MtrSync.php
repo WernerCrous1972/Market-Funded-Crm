@@ -64,6 +64,18 @@ Usage:
         $startedAt = now();
         $this->info("MTR Sync started at {$startedAt->toDateTimeString()}");
 
+        // Incremental: queue only deposits + withdrawals for the last 24 hours.
+        // Branches, Offers, Accounts, and Challenge Buyers are nightly-only (--full).
+        if ($incremental) {
+            $this->line('  → Deposits (queued)...');
+            dispatch(new SyncDepositsJob($dryRun, $since));
+            $this->line('  → Withdrawals (queued)...');
+            dispatch(new SyncWithdrawalsJob($dryRun, $since));
+            $this->newLine();
+            $this->info('Incremental sync dispatched to queue.');
+            return self::SUCCESS;
+        }
+
         if ($runAll || $onlyOffers) {
             $this->runJob('Branches', new SyncBranchesJob($dryRun), $mtr);
             $this->runJob('Offers',   new SyncOffersJob($dryRun),   $mtr);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs\Sync;
 
+use App\Events\DepositReceived;
 use App\Models\Activity;
 use App\Models\Offer;
 use App\Models\Person;
@@ -201,6 +202,8 @@ class SyncDepositsJob implements ShouldQueue
                     ],
                     occurredAt: $transaction->occurred_at,
                 );
+
+                broadcast(new DepositReceived($person, $transaction));
 
                 $stats['created']++;
             } catch (\Throwable $e) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Events\LeadConverted;
 use App\Helpers\CountryHelper;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -196,6 +197,8 @@ class Person extends Model
             type: Activity::TYPE_STATUS_CHANGED,
             description: "Upgraded to CLIENT",
         );
+
+        broadcast(new LeadConverted($this));
 
         return true;
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs\Sync;
 
+use App\Events\LargeWithdrawalReceived;
 use App\Models\Activity;
 use App\Models\Offer;
 use App\Models\Person;
@@ -195,6 +196,10 @@ class SyncWithdrawalsJob implements ShouldQueue
                     ],
                     occurredAt: $transaction->occurred_at,
                 );
+
+                if ($amountCents >= 500_000) {
+                    broadcast(new LargeWithdrawalReceived($person, $transaction));
+                }
 
                 $stats['created']++;
             } catch (\Throwable $e) {

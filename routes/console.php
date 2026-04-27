@@ -8,9 +8,24 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
+// Nightly full sync at 00:05 SAST
+Schedule::command('mtr:sync --full')
+    ->dailyAt('00:05')
+    ->timezone('Africa/Johannesburg')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Refresh person_metrics nightly at 01:00 SAST (after MTR sync at 00:05)
 Schedule::command('metrics:refresh --sync')
     ->dailyAt('01:00')
     ->timezone('Africa/Johannesburg')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Incremental sync every 15 minutes between 06:00–22:00 SAST
+Schedule::command('mtr:sync --incremental')
+    ->everyFifteenMinutes()
+    ->timezone('Africa/Johannesburg')
+    ->between('06:00', '22:00')
     ->withoutOverlapping()
     ->runInBackground();
