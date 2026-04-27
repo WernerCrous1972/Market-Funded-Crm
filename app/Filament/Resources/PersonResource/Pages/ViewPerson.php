@@ -105,6 +105,12 @@ class ViewPerson extends ViewRecord
                         ->maxLength(255)
                         ->placeholder('e.g. Follow up re: deposit'),
 
+                    Forms\Components\Select::make('task_type')
+                        ->label('Type')
+                        ->options(\App\Models\Task::TYPES)
+                        ->default(\App\Models\Task::TYPE_GENERAL)
+                        ->required(),
+
                     Forms\Components\Textarea::make('description')
                         ->label('Notes')
                         ->rows(2),
@@ -126,13 +132,35 @@ class ViewPerson extends ViewRecord
                                 ->default('MEDIUM')
                                 ->required(),
                         ]),
+
+                    // Option C: manual override, defaults to account manager
+                    Forms\Components\Select::make('assigned_to_user_id')
+                        ->label('Assign to')
+                        ->options(fn () => \App\Models\User::orderBy('name')->pluck('name', 'id'))
+                        ->searchable()
+                        ->placeholder('Auto-assign to account manager')
+                        ->helperText('Leave blank to auto-assign based on account manager'),
                 ])
                 ->action(function (array $data): void {
                     $person = $this->getRecord();
 
+                    // Option C: resolve assignee
+                    $assignee = \App\Models\Task::resolveAssignee(
+                        $person,
+                        $data['assigned_to_user_id'] ?? null
+                    );
+
+                    // Fall back to current user if no account manager found
+                    if (! $assignee['user_id']) {
+                        $assignee = ['user_id' => auth()->id(), 'auto_assigned' => false];
+                    }
+
                     Task::create([
                         'person_id'           => $person->id,
-                        'assigned_to_user_id' => auth()->id(),
+                        'assigned_to_user_id' => $assignee['user_id'],
+                        'created_by_user_id'  => auth()->id(),
+                        'auto_assigned'       => $assignee['auto_assigned'],
+                        'task_type'           => $data['task_type'],
                         'title'               => $data['title'],
                         'description'         => $data['description'] ?? null,
                         'due_at'              => $data['due_at'] ?? null,
