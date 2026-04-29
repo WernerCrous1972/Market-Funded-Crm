@@ -4,14 +4,19 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources;
 
+use App\Exceptions\TemplateRequiredException;
 use App\Filament\Resources\PersonResource\Pages;
 use App\Helpers\CountryHelper;
 use App\Models\Person;
 use App\Models\PersonMetric;
+use App\Models\WhatsAppTemplate;
+use App\Services\WhatsApp\MessageSender;
+use App\Services\WhatsApp\ServiceWindowTracker;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -638,6 +643,45 @@ class PersonResource extends Resource
                                                     ->label('Opened')
                                                     ->date('d M Y')
                                                     ->columnSpan(2),
+                                            ]),
+                                    ])
+                                    ->contained(false),
+                            ]),
+                        // ── WhatsApp thread ───────────────────────────────────
+                        Infolists\Components\Tabs\Tab::make('WhatsApp')
+                            ->icon('heroicon-o-chat-bubble-left-ellipsis')
+                            ->schema([
+                                Infolists\Components\RepeatableEntry::make('whatsappMessages')
+                                    ->label('')
+                                    ->schema([
+                                        Infolists\Components\Grid::make(12)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('direction')
+                                                    ->label('')
+                                                    ->badge()
+                                                    ->columnSpan(2)
+                                                    ->color(fn (string $state) => $state === 'OUTBOUND' ? 'success' : 'info')
+                                                    ->formatStateUsing(fn (string $state) => $state === 'OUTBOUND' ? '→ Out' : '← In'),
+
+                                                Infolists\Components\TextEntry::make('body_text')
+                                                    ->label('')
+                                                    ->columnSpan(7),
+
+                                                Infolists\Components\TextEntry::make('status')
+                                                    ->label('')
+                                                    ->badge()
+                                                    ->columnSpan(1)
+                                                    ->color(fn (string $state) => match ($state) {
+                                                        'SENT', 'DELIVERED', 'READ', 'RECEIVED' => 'success',
+                                                        'FAILED'  => 'danger',
+                                                        default   => 'gray',
+                                                    }),
+
+                                                Infolists\Components\TextEntry::make('created_at')
+                                                    ->label('')
+                                                    ->dateTime('d M H:i')
+                                                    ->columnSpan(2)
+                                                    ->color('gray'),
                                             ]),
                                     ])
                                     ->contained(false),

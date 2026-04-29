@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\PersonResource\Pages;
 
+use App\Exceptions\TemplateRequiredException;
 use App\Filament\Resources\PersonResource;
 use App\Filament\Widgets\PersonDepositChartWidget;
 use App\Jobs\Metrics\RefreshPersonMetricsJob;
 use App\Models\Activity;
 use App\Models\Note;
 use App\Models\Task;
+use App\Models\WhatsAppTemplate;
+use App\Services\WhatsApp\MessageSender;
+use App\Services\WhatsApp\ServiceWindowTracker;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
@@ -28,10 +32,11 @@ class ViewPerson extends ViewRecord
         return \App\Models\Person::with([
             'metrics',
             'tradingAccounts',
-            'transactions' => fn ($q) => $q->orderByDesc('occurred_at')->limit(200),
-            'activities'   => fn ($q) => $q->orderByDesc('occurred_at')->limit(100),
+            'transactions'    => fn ($q) => $q->orderByDesc('occurred_at')->limit(200),
+            'activities'      => fn ($q) => $q->orderByDesc('occurred_at')->limit(100),
             'notes',
             'tasks',
+            'whatsappMessages' => fn ($q) => $q->orderBy('created_at')->limit(200),
         ])->findOrFail($key);
     }
 
@@ -53,6 +58,100 @@ class ViewPerson extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+
+            Actions\Action::make('sendWhatsApp')
+                ->label('Send WhatsApp')
+                ->icon('heroicon-o-chat-bubble-bottom-center-text')
+                ->color('success')
+                ->form(function (): array {
+                    $person  = $this->getRecord();
+                    $tracker = app(ServiceWindowTracker::class);
+                    $inside  = $tracker->isInsideWindow($person);
+                    $enabled = (bool) config('whatsapp.feature_enabled');
+
+                    if (! $enabled) {
+                        return [
+                            Forms\Components\Placeholder::make('disabled_notice')
+                                ->label('')
+                                ->content('WhatsApp is not yet active. Once Meta approval is received and WA_FEATURE_ENABLED=true is set, this button will be live.'),
+                        ];
+                    }
+
+                    if (! $person->phone_e164) {
+                        return [
+                            Forms\Components\Placeholder::make('no_phone_notice')
+                                ->label('')
+                                ->content('This person has no verified phone number. WhatsApp messages cannot be sent.'),
+                        ];
+                    }
+
+                    $fields = [];
+
+                    if ($inside) {
+                        // Inside service window — free-form allowed
+                        $fields[] = Forms\Components\Textarea::make('body')
+                            ->label('Message')
+                            ->required()
+                            ->rows(4)
+                            ->helperText('Inside 24-hour service window — free-form message allowed.');
+                    } else {
+                        // Outside window — template required
+                        $approvedTemplates = WhatsAppTemplate::where('status', 'APPROVED')
+                            ->orderBy('name')
+                            ->pluck('name', 'name')
+                            ->toArray();
+
+                        $fields[] = Forms\Components\Select::make('template_name')
+                            ->label('Template')
+                            ->options($approvedTemplates)
+                            ->required()
+                            ->helperText('Outside 24-hour service window — an approved template is required.')
+                            ->reactive();
+
+                        $fields[] = Forms\Components\Textarea::make('body')
+                            ->label('Preview / variable values')
+                            ->rows(3)
+                            ->helperText('Optional: enter the rendered message body for logging purposes.');
+                    }
+
+                    return $fields;
+                })
+                ->action(function (array $data): void {
+                    $person  = $this->getRecord();
+                    $enabled = (bool) config('whatsapp.feature_enabled');
+
+                    if (! $enabled || ! $person->phone_e164) {
+                        Notification::make()
+                            ->title('WhatsApp not available')
+                            ->body('Feature is disabled or person has no phone number.')
+                            ->warning()
+                            ->send();
+                        return;
+                    }
+
+                    try {
+                        $sender = app(MessageSender::class);
+                        $sender->send(
+                            person:       $person,
+                            body:         $data['body'] ?? '',
+                            templateName: $data['template_name'] ?? null,
+                            variables:    [],
+                            agentKey:     null,
+                            sentByUser:   auth()->user(),
+                        );
+
+                        Notification::make()
+                            ->title('WhatsApp message queued')
+                            ->success()
+                            ->send();
+                    } catch (TemplateRequiredException $e) {
+                        Notification::make()
+                            ->title('Template required')
+                            ->body('Outside the 24-hour service window. Please select a template.')
+                            ->danger()
+                            ->send();
+                    }
+                }),
 
             Actions\Action::make('addNote')
                 ->label('Add Note')
