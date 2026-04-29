@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Session summary — 29 April 2026
+
+Full session covering local sync diagnosis, WhatsApp architecture decisions, scaffolding, production deployment, and Meta Business setup start.
+
+#### Local sync (resolved, no code changes)
+Production cron lives on the droplet — no scheduled sync on the Mac is expected behaviour. Werner ran `php -d memory_limit=1G artisan mtr:sync --incremental` locally and it completed cleanly.
+
+#### WhatsApp architecture decisions (locked in — do not revisit)
+- Direct Meta Cloud API (not BSP, not Twilio)
+- One shared number for the brand
+- Eight internal agent departments (client always sees "Market Funded")
+- Manual send always available alongside autonomous
+- Template required outside 24h service window; free-form within
+- Unknown inbound numbers → warning log only, no auto-create
+- `WA_FEATURE_ENABLED=false` default — production safe
+- AI routing deferred to Phase 4 (`RouteToAgentListener` is a TODO stub)
+
+#### Meta Business setup (in progress, partially blocked)
+- Market Funded Business Manager portfolio created under Werner Crous (sole prop, Market Funded as brand — no CIPC registration)
+- Developer registration blocked on Meta device-trust security cooldown (Market Funded email opens on a different device than the Facebook session)
+- WhatsApp number, Business Verification, and template submission all await developer account clearance
+- Tax docs / SARS letter being obtained for Business Verification
+- New SIM reserved for Cloud API number
+
+---
+
 ### Deployed — WhatsApp Business scaffolding to production (2026-04-29)
 
 **Commit range:** `46a142e` → `cfdd0fd` (11 commits) — deployed to `crm.market-funded.com` (DigitalOcean Droplet, `root@144.126.225.3`).

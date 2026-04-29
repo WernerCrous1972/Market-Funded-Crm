@@ -451,6 +451,25 @@ config/whatsapp.php
 
 ---
 
+## 15. Market Funded Legal Entity & Meta Business Context
+
+**This matters because Meta Business Verification asks for a legal entity name and documents.**
+
+| Field | Value |
+|---|---|
+| Legal entity | Werner Crous (sole proprietor) |
+| Brand / trading name | Market Funded |
+| CIPC registration | None — Market Funded is a brand, not a registered company |
+| Operating licence | Under QuickTrade's licence (Market Funded is a Master IB) |
+| Meta Business Manager | Registered under Werner Crous, "Market Funded" as the business name |
+| Business Verification docs | SARS letter / tax registration (being obtained — not yet submitted) |
+| WhatsApp number | New SIM, dedicated to Cloud API (separate from consumer WhatsApp) |
+| Meta portfolio | Market Funded portfolio — separate from Stock Market Dynamics portfolio |
+
+**POPIA note:** The CRM holds 29,332+ contact records of South African and international retail forex/prop trading clients. Werner operates under QuickTrade's licence. Any bulk messaging (email or WhatsApp) must respect unsubscribe / opt-out obligations under POPIA and Meta's messaging policies.
+
+---
+
 ## 12. Data Integrity Rules
 
 - **All money** is stored as `bigint` in cents (multiply by 100 on write, divide by 100 on read). Never use floats.

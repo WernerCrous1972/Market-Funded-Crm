@@ -51,81 +51,98 @@ Read this file at the start of every session. Then read `BRAIN.md` for business 
 
 ## Current Phase
 
-**Phase 1 — Foundation & MTR Read-Only Sync** ✅ Complete
+**Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed. Awaiting external dependencies before Phase 4.
 
 ---
 
-## Current Status
+## Current Status (as of 2026-04-29)
 
 ### Built and working
-- Full Laravel 11 + Filament v3 project scaffold
-- Docker Compose: PostgreSQL 16 + Redis
-- All Phase 1 migrations: `users`, `branches`, `offers`, `people`, `trading_accounts`, `transactions`, `activities`, `notes`, `tasks`
-- All Eloquent models with relationships, scopes, and casts
-- `PhoneNormalizer` (E.164, ZA-aware), `EmailNormalizer`, `Pipeline\Classifier`
-- `App\Services\MatchTrader\Client` — full API client with rate-limiting (500 req/min), exponential retry on 429/5xx, generator-based pagination; flat array response support
-- `SyncBranchesJob`, `SyncOffersJob` (incl. prop challenge phase offers), `SyncAccountsJob`, `SyncDepositsJob`, `SyncWithdrawalsJob`
-- `php artisan mtr:sync` command with `--full`, `--incremental`, `--dry-run`, `--offers-only`, `--accounts-only`, `--deposits-only`, `--withdrawals-only`
-- `CategoryClassifier` — brand-aware transaction classification; rules are final (see BRAIN.md §10)
-- `backfill:full-history` — one-time API backfill from configurable start date; populates `offer_name` on existing rows
-- `backfill:transaction-categories` — re-classifies all rows from DB state; idempotent
-- `import:historical-challenges` — CSV-based reclassification with audit log and rollback (awaiting Werner's complete CSV)
-- Filament resources: `PersonResource` (list + view), `TransactionResource`, `TradingAccountResource`
-- Dashboard widgets: `StatsOverviewWidget` (6 stats), `RecentActivityWidget` (last 20 events)
-- Admin seeder: werner@market-funded.com / changeme123! (role=ADMIN)
-- **76 Pest tests passing**
-- **Incremental sync date filter fixed** — `from` param (was `dateFrom`, silently ignored by MTR API)
+- Full Laravel 11 + Filament v3 scaffold, Docker Compose (PostgreSQL 16 + Redis)
+- All migrations through `2026_04_29_000001_create_whatsapp_tables`
+- MTR sync: branches, offers (incl. prop challenge phases), accounts, deposits, withdrawals, challenge buyers
+- `php artisan mtr:sync` with `--full`, `--incremental`, `--dry-run`, and resource-specific flags
+- `CategoryClassifier` — brand-aware classification, rules are final (see BRAIN.md §10)
+- Filament resources: People, Transactions, TradingAccounts, EmailTemplates, EmailCampaigns, WhatsAppTemplates, WhatsAppMessages, Agents
+- Dashboard: StatsOverview, GlobalDepositChart, RecentActivity, AtRiskWidget
+- Health scoring (HealthScorer), person metrics cache (PersonMetric), at-risk widget
+- Email campaigns: templates, sending, open/click tracking, unsubscribe
+- Task queue: auto-assignment (Option C), My Tasks page
+- Real-time alerts via Reverb (deposit, withdrawal, lead converted)
+- WhatsApp scaffold: MetaCloudClient, ServiceWindowTracker, MessageSender, webhook controller, jobs, event/listener stub, Filament UI, Person detail tab + Send action
+- **161 Pest tests passing**
 
-### Live data (as of 2026-04-26)
-- 29,332 people (28,055 leads, 1,277 clients) — +48 from challenge buyer import
-- 5,849 transactions: 3,942 deposits, 1,907 withdrawals
-- **254 offers** (121 standard trading + 133 prop challenge phase offers)
-- 26 branches (2 included: Market Funded + QuickTrade)
-- **48 people** with `imported_via_challenge = true` (cross-branch / ghost records)
+### Live data (as of 2026-04-26 — production sync blocked pending MTR IP whitelist)
+- 29,332 people (28,055 leads, 1,277 clients)
+- 5,849 transactions — 0 UNCLASSIFIED
+- 254 offers, 26 branches, 8 agents seeded
 
-### Transaction classification (as of 2026-04-26)
-| Category | Count | Value |
-|---|---|---|
-| EXTERNAL_DEPOSIT | 3,579 | $600,432 |
-| EXTERNAL_WITHDRAWAL | 1,121 | $233,965 |
-| CHALLENGE_PURCHASE | **534** | **$66,607** |
-| CHALLENGE_REFUND | 9 | $559 |
-| INTERNAL_TRANSFER | 606 | $96,291 |
-| UNCLASSIFIED | 0 | — |
-
-CP ground truth ~880 / ~$180,500. **Deposit-side gap is illusory** — verified by MTR export comparison for April 2026: 24 qualifying rows in export, 24 in DB, exact match. Only real gap: **~93 withdrawal-side** (cross-branch buyers not yet in DB). Partially recoverable via future `SyncOurChallengeBuyersJob` runs. See BRAIN.md §10.
-
-### Known limitations / next up (Phase 2)
-- No rich Person detail page yet (only list + basic view)
-- No advanced saved filters / views
-- No saved reports
-- `people.country` stores raw MTR value — can be full name ("South Africa") or ISO-2 ("ZA") — not normalised to ISO-2
-- **SyncOurChallengeBuyersJob requires `php -d memory_limit=2G`** — streams all /v1/accounts into memory for CRM enrichment (same constraint as full account sync)
-- `SyncOurChallengeBuyersJob` memory footprint could be reduced by replacing the 29k in-memory map with per-email lookups via `/v1/accounts/by-email/{email}` (verified working in production)
+### WhatsApp status
+- Scaffolded and deployed. `WA_FEATURE_ENABLED=false` — no sends possible.
+- `WA_*` credential vars absent from production `.env` — will be added manually when Meta approves.
+- Webhook endpoint live at `/webhooks/whatsapp` but POST requests return 401 (no `WA_APP_SECRET` set — correct).
 
 ---
 
-## End of session 2026-04-26 — Phase 1 closed at v0.4.0-classifier-verified
+## Pending External Dependencies
 
-**What's working:**
-- Full MTR sync (offers, branches, accounts, deposits, withdrawals, prop challenge buyers) running correctly
-- Brand-first customer identity (TTR/QT/MFU) preserves cross-branch buyers
-- Transaction categorization verified against MTR export — deposit-side fully captured (no gap), 93-row withdrawal-side gap accepted
-- Incremental sync now correctly filters by date (was silently doing full pulls before)
-- 76 tests passing, all critical paths covered
+These are blocking real-world functionality. Do not attempt workarounds — wait for each to resolve.
 
-**Phase 2 entry point:**
-The next session should focus on the rich Person detail page — segment pills, equity/deposit/withdrawal chart (90 days), activity timeline, related notes/tasks/trading accounts. See `market-funded-crm-phase-0-brief.md` §"Phase 2" for the spec.
+| Dependency | Status | Blocks |
+|---|---|---|
+| Match-Trader IP whitelist (production server IP) | ⏳ Ticket submitted, awaiting MTR response | Production cron sync |
+| Meta developer account (device-trust cooldown) | ⏳ Security cooldown clearing | WhatsApp number registration |
+| Tax docs / SARS letter for Werner | ⏳ Being obtained (days) | Meta Business Verification upload |
+| WhatsApp Business number registration | ⏳ Waits on developer account | `WA_PHONE_NUMBER_ID` credential |
+| Meta template approval (first template) | ⏳ Waits on number | First real WA send |
+
+**Without Business Verification:** Meta limits outbound to 250 unique recipients/24h — sufficient for initial testing.
+
+---
+
+## Meta Business Setup Context
+
+- **Legal entity:** Werner Crous (sole prop) — Market Funded is a brand/trading name, NOT a CIPC-registered company
+- **Portfolio:** Market Funded Business Manager portfolio created (separate from Stock Market Dynamics)
+- **Admin:** Werner Crous added as full-control admin
+- **Number:** New SIM reserved for Cloud API use (separate from any consumer WhatsApp)
+- **Stock Market Dynamics pages:** Deliberately NOT added to Market Funded portfolio — different brand
+
+---
+
+## End of session 2026-04-29
+
+**What was done:**
+- Local incremental sync run (`mtr:sync --incremental`) — clean, no issues
+- WhatsApp architecture decisions locked in (see BRAIN.md §14)
+- WhatsApp scaffolding built: 11 commits, 28 new tests (161 total)
+- Deployed to production: 1 migration, 8 agents seeded, all caches rebuilt, workers restarted
+- Meta Business Manager setup started — blocked on device-trust security cooldown
+
+**Tomorrow's likely starting points (in priority order):**
+1. If Meta cooldown cleared: `developers.facebook.com` → create app → add WhatsApp product → register SIM number → generate System User token → capture 5 `WA_*` credentials → add to production `.env` → first test send → tag `v1.1.0`
+2. If Meta still blocked: SSH hardening (dedicated task — generate keys, disable password auth, create deployer user)
+3. Or: pull `deploy.sh` into git repo + add permission normalisation step
+4. Or: Phase 4 prep (health scoring factors 5 & 6, or review `market-funded-crm-phase-0-brief.md`)
+
+---
+
+## Open Follow-ups (non-blocking)
+
+1. **Production `.env`** — add `WA_FEATURE_ENABLED=false` explicitly when populating Meta credentials (currently relies on config default)
+2. **`deploy.sh` not in git** — file exists on server at `/var/www/market-funded-crm/deploy.sh` but unversioned
+3. **Permission drift** — `core.fileMode` was `true` on server causing phantom diffs; fixed to `false`. Consider `chmod` normalisation in `deploy.sh`
+4. **SSH hardening** — password auth as root, no keys. Separate dedicated task. Plan: generate keys, add via DO console, disable password auth, create deployer user, verify ufw, optionally install fail2ban
 
 ---
 
 ## How to Resume
 
 1. Read this file (done).
-2. Read `BRAIN.md` — business rules that govern all sync and classification logic.
+2. Read `BRAIN.md` — business rules and WhatsApp architecture decisions.
 3. Read `CHANGELOG.md` — what changed recently.
-4. Run `php artisan test` — confirm all tests still pass before touching anything.
-5. Check DB state: `php artisan tinker --execute="echo \App\Models\Person::count();"` to confirm data is present.
+4. Run `php artisan test` — confirm 161 tests pass before touching anything.
+5. Check DB: `php artisan tinker --execute="echo \App\Models\Person::count();"` to confirm data present.
 
 ---
 
@@ -135,35 +152,61 @@ The next session should focus on the rich Person detail page — segment pills, 
 app/
   Console/Commands/
     MtrSync.php                         — mtr:sync artisan command
-    BackfillFullHistory.php             — backfill:full-history (API → DB, populates offer_name)
-    BackfillTransactionCategories.php   — backfill:transaction-categories (re-classify from DB)
+    BackfillFullHistory.php             — backfill:full-history
+    BackfillTransactionCategories.php   — backfill:transaction-categories
     ImportHistoricalChallenges.php      — import:historical-challenges (CSV reclassification)
-  Filament/Resources/                   — PersonResource, TransactionResource, TradingAccountResource
-  Filament/Widgets/                     — StatsOverviewWidget, RecentActivityWidget
-  Jobs/Sync/                            — SyncBranchesJob, SyncOffersJob (+ prop challenge phases),
-                                          SyncAccountsJob, SyncDepositsJob, SyncWithdrawalsJob
+  Events/
+    DepositReceived.php, LargeWithdrawalReceived.php, LeadConverted.php
+    WhatsApp/WhatsAppMessageReceived.php — AI routing entry point (Phase 4)
+  Exceptions/
+    WhatsAppSendException.php, TemplateRequiredException.php
+  Filament/Resources/
+    PersonResource, TransactionResource, TradingAccountResource
+    EmailTemplateResource, EmailCampaignResource
+    WhatsAppTemplateResource, WhatsAppMessageResource, AgentResource
+  Filament/Widgets/                     — StatsOverviewWidget, RecentActivityWidget,
+                                          GlobalDepositChartWidget, AtRiskWidget
+  Http/Controllers/
+    EmailTrackingController.php
+    Webhooks/WhatsAppWebhookController.php
+  Jobs/
+    Sync/                               — SyncBranchesJob, SyncOffersJob, SyncAccountsJob,
+                                          SyncDepositsJob, SyncWithdrawalsJob, SyncOurChallengeBuyersJob
+    Metrics/RefreshPersonMetricsJob.php, CalculateHealthScoresJob.php
+    Email/SendCampaignJob.php
+    WhatsApp/SendWhatsAppMessageJob.php, ProcessWhatsAppWebhookJob.php
+  Listeners/WhatsApp/RouteToAgentListener.php — TODO stub (Phase 4 AI entry point)
   Models/                               — Person, TradingAccount, Transaction, Branch, Offer,
-                                          Activity, Note, Task, User
-  Providers/Filament/AdminPanelProvider.php
+                                          Activity, Note, Task, User, PersonMetric,
+                                          Agent, WhatsAppTemplate, WhatsAppMessage,
+                                          EmailTemplate, EmailCampaign, EmailCampaignRecipient,
+                                          EmailEvent, EmailUnsubscribe
   Services/
-    MatchTrader/Client.php              — MTR API client (rate-limited, retries, flat array pagination)
-    Normalizer/PhoneNormalizer.php
-    Normalizer/EmailNormalizer.php
+    MatchTrader/Client.php
+    Normalizer/PhoneNormalizer.php, EmailNormalizer.php
     Pipeline/Classifier.php
-    Transaction/CategoryClassifier.php  — RULES ARE FINAL — do not modify without Werner's approval
+    Transaction/CategoryClassifier.php  — RULES ARE FINAL
+    Health/HealthScorer.php
+    Email/CampaignMailer.php
+    WhatsApp/MetaCloudClient.php        — Graph API wrapper
+    WhatsApp/ServiceWindowTracker.php   — 24h window rule
+    WhatsApp/MessageSender.php          — single send entry point
+    WhatsApp/SendResult.php
 config/
-  matchtrader.php                       — ALL MTR config; our_brand_codes + challenge_keywords here
+  matchtrader.php                       — MTR config; brand codes + challenge keywords
+  whatsapp.php                          — WA_FEATURE_ENABLED (false), Meta API keys
 database/
-  factories/
-  migrations/
-  seeders/AdminUserSeeder.php
+  migrations/                           — all migrations through 2026_04_29
+  seeders/AdminUserSeeder.php, AgentSeeder.php
 docker-compose.dev.yml
+routes/web.php                          — email tracking + /webhooks/whatsapp (CSRF exempt)
 tests/
-  Feature/FilamentResourcesTest.php
-  Feature/MtrSyncCommandTest.php
-  Feature/ImportHistoricalChallengesTest.php
-  Unit/CategoryClassifierTest.php
-  Unit/EmailNormalizerTest.php
-  Unit/PhoneNormalizerTest.php
-  Unit/PipelineClassifierTest.php
+  Feature/                              — FilamentResourcesTest, MtrSyncCommandTest,
+                                          ImportHistoricalChallengesTest, Phase2Test,
+                                          HealthScoringTest, EmailCampaignTest,
+                                          TaskQueueTest, WhatsAppWebhookTest
+  Unit/                                 — CategoryClassifierTest, EmailNormalizerTest,
+                                          PhoneNormalizerTest, PipelineClassifierTest,
+                                          MetaCloudClientTest, ServiceWindowTrackerTest,
+                                          MessageSenderTest
 ```
