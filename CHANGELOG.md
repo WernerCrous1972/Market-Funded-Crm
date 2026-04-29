@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deployed — WhatsApp Business scaffolding to production (2026-04-29)
+
+**Commit range:** `46a142e` → `cfdd0fd` (11 commits) — deployed to `crm.market-funded.com` (DigitalOcean Droplet, `root@144.126.225.3`).
+
+#### What landed in production
+
+- **3 new DB tables:** `whatsapp_templates`, `whatsapp_messages`, `agents` — migration `2026_04_29_000001_create_whatsapp_tables` ran cleanly.
+- **8 agents seeded** via `AgentSeeder` (EDUCATION, DEPOSITS, CHALLENGES, SUPPORT, ONBOARDING, RETENTION, NURTURING, GENERAL). System prompts empty — Werner fills these when AI routing is configured.
+- **Meta Cloud API integration scaffolded:** `MetaCloudClient`, `ServiceWindowTracker`, `MessageSender`, `SendWhatsAppMessageJob`, `ProcessWhatsAppWebhookJob`, `WhatsAppWebhookController`.
+- **Feature flag OFF:** `WA_FEATURE_ENABLED` is absent from production `.env` — `config/whatsapp.php` defaults it to `false`. No messages can be sent. No risk of accidental sends.
+- **Filament UI added:** WA Templates (CRUD), WA Messages (read-only log), Agents (edit prompts/toggle) — all under "WhatsApp" nav group.
+- **Person detail page:** WhatsApp thread tab + Send WhatsApp header action (shows "Feature not yet active" while flag is off).
+- **Webhook endpoint live:** `GET/POST /webhooks/whatsapp` — Meta verification challenge will work once `WA_WEBHOOK_VERIFY_TOKEN` is set in `.env`.
+- **161 tests passing locally** before deploy (up from 133).
+
+#### What does NOT work yet (by design)
+
+- No messages can be sent — `WA_FEATURE_ENABLED=false`.
+- Webhook POST events are rejected — `WA_APP_SECRET` not set, all POSTs return 401. Correct until Meta credentials are populated.
+- AI agent routing — `RouteToAgentListener` is a TODO stub.
+
+#### Activation checklist (do this when Meta approval arrives)
+
+1. SSH to server, edit `.env`: populate `WA_PHONE_NUMBER_ID`, `WA_BUSINESS_ACCOUNT_ID`, `WA_ACCESS_TOKEN`, `WA_WEBHOOK_VERIFY_TOKEN`, `WA_APP_SECRET`.
+2. Also explicitly add `WA_FEATURE_ENABLED=false` at this point (currently relying on config default — explicit is safer).
+3. Register webhook URL `https://crm.market-funded.com/webhooks/whatsapp` in Meta Business Manager using `WA_WEBHOOK_VERIFY_TOKEN`.
+4. Create first approved template in CRM (Admin → WhatsApp → WA Templates).
+5. Set `WA_FEATURE_ENABLED=true` when first send is ready — bump version to `v1.1.0` at that point.
+
+#### Deploy notes
+
+- **`core.fileMode` drift fixed:** Server had `core.fileMode=true` causing 200+ phantom permission-changed diffs. Set to `false` during deploy — no code changes, cosmetic only.
+- **`deploy.sh` on server but not in git:** Script exists at `/var/www/market-funded-crm/deploy.sh` but is unversioned. Worth pulling into the repo so deploys are repeatable and auditable.
+- **No version bump:** Feature flag is off — no user-visible change. Version stays at `v1.0.0`. Tag `v1.1.0` on first real WhatsApp send.
+
+---
+
 ### Fixed — Incremental sync date filter was silently ignored (2026-04-26)
 
 `Client.php` was passing `dateFrom` as the query parameter for `/v1/deposits` and `/v1/withdrawals` incremental filtering. The MTR API silently ignores unknown parameters and returned the full dataset (37,196 deposits) on every incremental run — identical to a full pull.
