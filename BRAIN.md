@@ -362,6 +362,95 @@ Should the CRM eventually import ALL MTR records regardless of brand or branch (
 
 ---
 
+## 14. WhatsApp Business (Meta Cloud API)
+
+**Integration status:** Scaffolded, feature flag OFF by default (`WA_FEATURE_ENABLED=false`).
+No messages will be sent until Meta approval is received and the flag is enabled.
+
+### Channel
+
+- **Single shared number** for all Market Funded communications.
+- Direct Meta Cloud API integration (no BSP, no Twilio).
+- Graph API version: `v19.0` (set in `config/whatsapp.php`).
+
+### Service window rule (Meta 24-hour rule)
+
+> A free-form message can only be sent to a person who sent an inbound WhatsApp message within the last 24 hours.
+> Outside that window, only pre-approved **templates** may be sent.
+
+Enforced by `ServiceWindowTracker::requiresTemplate()` in `App\Services\WhatsApp\ServiceWindowTracker`.
+Calling `MessageSender::send()` without a template name when outside the window throws `TemplateRequiredException`.
+
+### Agents (internal logical separation)
+
+Eight agents are seeded — one per department. These are internal routing buckets only.
+The client always sees "Market Funded", never the agent name.
+System prompts are empty until Werner configures them. AI routing is deferred — `RouteToAgentListener` is a TODO stub.
+
+| Key | Department |
+|---|---|
+| `education` | EDUCATION |
+| `deposits` | DEPOSITS |
+| `challenges` | CHALLENGES |
+| `support` | SUPPORT |
+| `onboarding` | ONBOARDING |
+| `retention` | RETENTION |
+| `nurturing` | NURTURING |
+| `general` | GENERAL |
+
+### Template workflow
+
+1. Werner creates a template record in CRM (status: DRAFT).
+2. Werner submits the template in Meta Business Manager manually.
+3. On approval, Werner updates the record in CRM: sets `meta_template_id`, `approved_at`, status → APPROVED.
+4. The CRM does **not** submit templates to Meta via API — manual workflow only.
+
+### Webhook endpoint
+
+```
+GET  /webhooks/whatsapp   → Meta verification challenge
+POST /webhooks/whatsapp   → Inbound events (messages + status updates)
+```
+
+Authentication: `X-Hub-Signature-256` HMAC verified against `WA_APP_SECRET`. Requests failing signature check are rejected with 401.
+
+### Brand-first inbound rule
+
+If an inbound WhatsApp arrives from a phone number not in `people`, the message is **discarded** (logged as warning). Auto-creation of person records is prohibited — consistent with the brand-first identity rule (§11).
+
+### Key files
+
+```
+app/
+  Services/WhatsApp/
+    MetaCloudClient.php          — Graph API wrapper (sendTemplate, sendFreeForm, verifyWebhookSignature)
+    ServiceWindowTracker.php     — 24-hour window checks
+    MessageSender.php            — Single entry point; validates then dispatches job
+    SendResult.php               — Typed result DTO
+  Jobs/WhatsApp/
+    SendWhatsAppMessageJob.php   — Queued send (3 tries, 30s backoff)
+    ProcessWhatsAppWebhookJob.php — Parses Meta webhook payloads
+  Events/WhatsApp/
+    WhatsAppMessageReceived.php  — Fired on inbound; AI plugs in here
+  Listeners/WhatsApp/
+    RouteToAgentListener.php     — TODO stub
+  Exceptions/
+    WhatsAppSendException.php
+    TemplateRequiredException.php
+  Http/Controllers/Webhooks/
+    WhatsAppWebhookController.php
+config/whatsapp.php
+```
+
+### What is deferred
+
+- AI / Claude API integration (RouteToAgentListener stub)
+- Trigger jobs (deposit → send template, etc.) — defer until templates approved
+- Media uploads (images, PDFs)
+- Per-agent phone numbers
+
+---
+
 ## 12. Data Integrity Rules
 
 - **All money** is stored as `bigint` in cents (multiply by 100 on write, divide by 100 on read). Never use floats.
