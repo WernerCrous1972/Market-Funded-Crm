@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\EmailTrackingController;
+use App\Http\Controllers\Webhooks\WhatsAppWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -19,3 +20,12 @@ Route::get('/email/unsubscribe/{recipient}', [EmailTrackingController::class, 'u
 
 Route::post('/email/unsubscribe/{recipient}', [EmailTrackingController::class, 'unsubscribeConfirm'])
     ->name('email.unsubscribe.confirm');
+
+// ── WhatsApp webhooks (CSRF exempt — Meta signature is the auth) ──────────────
+Route::withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class)
+    ->group(function () {
+        Route::get('/webhooks/whatsapp',  [WhatsAppWebhookController::class, 'verificationChallenge'])
+            ->name('webhooks.whatsapp.verify');
+        Route::post('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'receive'])
+            ->name('webhooks.whatsapp.receive');
+    });
