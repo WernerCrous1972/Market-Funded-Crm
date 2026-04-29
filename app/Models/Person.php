@@ -57,6 +57,11 @@ class Person extends Model
         return $this->hasMany(TradingAccount::class);
     }
 
+    public function whatsappMessages(): HasMany
+    {
+        return $this->hasMany(WhatsAppMessage::class)->orderBy('created_at');
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);
