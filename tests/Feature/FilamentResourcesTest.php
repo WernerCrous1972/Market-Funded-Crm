@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use App\Filament\Resources\AgentResource;
 use App\Filament\Resources\PersonResource;
 use App\Filament\Resources\TransactionResource;
 use App\Filament\Resources\TradingAccountResource;
+use App\Filament\Resources\WhatsAppMessageResource;
+use App\Filament\Resources\WhatsAppTemplateResource;
 
 describe('Filament resources smoke tests', function () {
     beforeEach(function () {
@@ -24,6 +27,21 @@ describe('Filament resources smoke tests', function () {
 
     it('trading accounts index page loads without error', function () {
         $this->get(TradingAccountResource::getUrl('index'))
+            ->assertOk();
+    });
+
+    it('whatsapp templates index page loads without error', function () {
+        $this->get(WhatsAppTemplateResource::getUrl('index'))
+            ->assertOk();
+    });
+
+    it('whatsapp messages index page loads without error', function () {
+        $this->get(WhatsAppMessageResource::getUrl('index'))
+            ->assertOk();
+    });
+
+    it('agents index page loads without error', function () {
+        $this->get(AgentResource::getUrl('index'))
             ->assertOk();
     });
 
