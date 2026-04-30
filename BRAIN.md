@@ -348,6 +348,36 @@ Should the CRM eventually import ALL MTR records regardless of brand or branch (
 
 `docs/Mt-api.md` is the canonical API reference but contains several inaccuracies vs production. **When docs and production conflict, production wins.** Always verify with `php artisan tinker` before writing field-access code.
 
+### Match-Trader API sits behind Cloudflare (confirmed 2026-04-30)
+
+The MTR API is fronted by Cloudflare. This has a critical implication for production server access:
+
+**Diagnostic signal:** An HTTP 403 response with these headers indicates Cloudflare bot protection, NOT an MTR application-level rejection:
+```
+server: cloudflare
+cf-mitigated: challenge
+cf-ray: <ray-id>-LHR
+```
+The response body will be a "Just a moment..." HTML page (JavaScript challenge). Server-side curl/PHP cannot solve this challenge.
+
+**Root cause:** Cloudflare aggressively challenges requests from datacentre IP ranges (DigitalOcean, AWS, etc.) by default. Residential IPs pass through. This is why:
+- `php artisan mtr:sync` works on Werner's Mac (residential IP `197.184.x.x`)
+- The same sync hangs/403s from the production droplet (`144.126.225.3` — DigitalOcean datacentre)
+
+**Whitelist requirement:** The whitelist request submitted to Match-Trader must be applied at the **Cloudflare layer** — specifically an IP Access Rule with action "Allow" or a WAF Skip rule for `144.126.225.3`. A standard origin/firewall whitelist will not resolve the issue because Cloudflare rejects before the request reaches the MTR origin server.
+
+**Diagnostic command** (run from production server to confirm status):
+```bash
+curl -sI --max-time 10 -H "Authorization: Bearer $TOKEN" "$MTR_BASE_URL/v1/branches" 2>&1 | grep -E "HTTP/|server:|cf-"
+```
+- `HTTP/2 200` + no `cf-mitigated` → whitelist applied, working
+- `HTTP/2 403` + `cf-mitigated: challenge` → still blocked at Cloudflare
+- `HTTP/2 401` → reached MTR origin but token issue
+
+**Escalation path:** The whitelist request was raised by the QuickTrade owner to Match-Trader's technical contact. They need to add `144.126.225.3` to their Cloudflare IP Access Rules, not their origin firewall.
+
+**Base URL note:** Production `.env` uses `crm-quicktrade.match-trade.com` (not `broker-api-quicktrade.match-trade.com` as in local dev). Both endpoints should be covered by the whitelist request.
+
 ### Verified corrections (2026-04-26)
 
 | Endpoint / param | Docs say | Production | Status |

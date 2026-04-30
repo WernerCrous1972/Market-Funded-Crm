@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Diagnosed — Production MTR API blocked at Cloudflare layer (2026-04-30)
+
+The production droplet (`144.126.225.3`) reaches Match-Trader's API endpoint in ~68ms — connectivity is fine. However, HTTP 403 responses carry `server: cloudflare` and `cf-mitigated: challenge` headers, confirming the block is at Cloudflare's WAF/bot-protection layer, not Match-Trader's origin server.
+
+Cloudflare challenges datacentre IPs (DigitalOcean ranges) by default. The same sync requests succeed from Werner's residential Mac IP. The whitelist must be applied as a Cloudflare IP Access Rule "Allow" for `144.126.225.3` — a standard origin firewall rule will not resolve it.
+
+Follow-up sent to Match-Trader via the QuickTrade owner (who has the MTR technical contact). No code changes — external infrastructure dependency. Production sync remains blocked until Match-Trader applies the rule at the correct layer.
+
+**Documented in BRAIN.md §13** — diagnostic command, headers to look for, and escalation path.
+
+---
+
 ### Session summary — 29 April 2026
 
 Full session covering local sync diagnosis, WhatsApp architecture decisions, scaffolding, production deployment, and Meta Business setup start.

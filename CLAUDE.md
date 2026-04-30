@@ -90,7 +90,8 @@ These are blocking real-world functionality. Do not attempt workarounds — wait
 
 | Dependency | Status | Blocks |
 |---|---|---|
-| Match-Trader IP whitelist (production server IP) | ⏳ Ticket submitted, awaiting MTR response | Production cron sync |
+| Match-Trader IP whitelist — **Cloudflare layer** | ⏳ Escalated to MTR via QuickTrade owner | Production cron sync |
+| ↳ _Technical detail_ | _`144.126.225.3` gets `cf-mitigated: challenge` 403 in 68ms. Must be a Cloudflare IP Access Rule "Allow", not an origin firewall rule. Local Mac sync works fine (residential IP). See BRAIN.md §13._ | |
 | Meta developer account (device-trust cooldown) | ⏳ Security cooldown clearing | WhatsApp number registration |
 | Tax docs / SARS letter for Werner | ⏳ Being obtained (days) | Meta Business Verification upload |
 | WhatsApp Business number registration | ⏳ Waits on developer account | `WA_PHONE_NUMBER_ID` credential |
