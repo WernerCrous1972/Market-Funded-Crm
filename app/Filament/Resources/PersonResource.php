@@ -74,7 +74,8 @@ class PersonResource extends Resource
                     ->toggleable(),
 
                 Tables\Columns\TextColumn::make('branch')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->sortable()
+                    ->toggleable(),
 
                 Tables\Columns\TextColumn::make('lead_source')
                     ->label('Source')
@@ -129,6 +130,11 @@ class PersonResource extends Resource
 
                 Tables\Filters\SelectFilter::make('branch')
                     ->options(fn () => Person::distinct()->pluck('branch', 'branch')->filter()->toArray())
+                    ->searchable(),
+
+                Tables\Filters\SelectFilter::make('account_manager')
+                    ->label('Account Manager')
+                    ->options(fn () => Person::distinct()->pluck('account_manager', 'account_manager')->filter()->sort()->toArray())
                     ->searchable(),
 
                 Tables\Filters\SelectFilter::make('lead_source')

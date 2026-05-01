@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TransactionResource\Pages;
+use App\Models\Person;
 use App\Models\Transaction;
 use Filament\Forms\Form;
 use Filament\Infolists\Components\Grid;
@@ -137,6 +138,14 @@ class TransactionResource extends Resource
                         PersonResource::getUrl('view', ['record' => $r->person_id])
                     ),
 
+                Tables\Columns\TextColumn::make('person.branch')
+                    ->label('Branch')
+                    ->sortable(query: fn (Builder $query, string $direction) =>
+                        $query->join('people', 'transactions.person_id', '=', 'people.id')
+                              ->orderBy('people.branch', $direction)
+                    )
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\BadgeColumn::make('type')
                     ->colors([
                         'success' => 'DEPOSIT',
@@ -199,6 +208,16 @@ class TransactionResource extends Resource
                         'MFU_ACADEMY' => 'MFU Academy',
                         'MFU_MARKETS' => 'MFU Markets',
                     ]),
+
+                SelectFilter::make('branch')
+                    ->label('Branch')
+                    ->options(fn () => Person::distinct()->pluck('branch', 'branch')->filter()->sort()->toArray())
+                    ->query(fn (Builder $q, array $data) =>
+                        $data['value']
+                            ? $q->whereHas('person', fn (Builder $p) => $p->where('branch', $data['value']))
+                            : $q
+                    )
+                    ->searchable(),
 
                 Filter::make('this_month')
                     ->label('This month')
