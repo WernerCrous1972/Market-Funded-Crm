@@ -1,6 +1,81 @@
 # CLAUDE.md — Session Context for Market Funded CRM
 
-Read this file at the start of every session. Then read `BRAIN.md` for business rules and `CHANGELOG.md` for recent changes before touching any code.
+Read this file at the start of every session. Then follow the Session Start Protocol below before touching any code.
+
+---
+
+## Session Start Protocol
+
+At the start of every new session, before doing anything else, follow this protocol:
+
+### 1. Always read
+
+- **This file (`CLAUDE.md`)** — for project orientation
+- **The last 5 entries of `CHANGELOG.md`** — for recent context
+
+### 2. Read when relevant
+
+- **`BRAIN.md`** — read sections relevant to the current task. Do NOT read end-to-end every session. Section index:
+  - §1–2: Pipelines, MTR API basics
+  - §3–4: Branch and lead source filtering
+  - §5–10: Transaction filters, classification, brand-first rule
+  - §11: Brand vs branch identity rule
+  - §12: Data integrity rules (money, timestamps, immutability)
+  - §13: MTR API verified production behaviour, Cloudflare layer
+  - §14: WhatsApp Business integration
+  - §15: Market Funded legal entity / Meta Business context
+  - §16: Production SSH access (deployer user, key-only)
+
+### 3. Check your own memory
+
+- Recent decisions, preferences, in-flight tasks
+- Current external blockers (see list below)
+
+### 4. Confirm orientation
+
+Before starting work, briefly confirm to Werner:
+- What you understand the current state to be
+- What task you're about to work on
+- Any external blockers that might affect it
+
+Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orientation prevents acting on stale assumptions.
+
+---
+
+## Werner's working preferences
+
+- **Direct, concise responses.** No padding, no ceremonial preambles.
+- **Flag risk before action.** If a step is irreversible, slow down and verify with Werner before executing.
+- **Werner is non-technical.** Explain *why* a command is being run when it matters, not just what to type.
+- **Manual control over autonomous execution** for production-touching tasks. Werner often prefers to run commands himself with Claude Code guiding, rather than Claude Code executing. Confirm preference at task start when relevant.
+- **One pair of eyes is good, two is better.** Werner often runs decisions through both Claude Code (execution) and a planning assistant in claude.ai (strategic review). Don't be surprised if he pauses to consult.
+
+---
+
+## Current external blockers
+
+> **Maintenance note:** This section is point-in-time. Werner or Claude Code should update it whenever a blocker resolves, a new one appears, or status changes. Stale information here is worse than no information.
+
+- **Match-Trader Cloudflare whitelist** — production droplet (`144.126.225.3`) blocked at Cloudflare layer. Whitelist requested via QuickTrade owner. Awaiting MTR action. Production sync currently non-functional. Diagnostic: `curl -sI` against the API returns `cf-mitigated: challenge`. Last checked: 2026-05-01.
+- **Meta developer account device-trust cooldown** — preventing completion of WhatsApp Cloud API setup. Werner is waiting it out. Last checked: 2026-05-01.
+- **SARS / tax docs** — needed for Meta Business Verification. Werner is obtaining; multi-day timeline. Last checked: 2026-05-01.
+
+---
+
+## Open follow-ups
+
+> **Maintenance note:** Add items as they're identified. Remove or strike through when complete.
+
+- Port 8080 ufw rule on production — assumed Reverb WebSocket, not yet verified. Confirm or remove.
+- ~~System updates + kernel reboot complete (kernel 6.8.0-111, all services up).~~ ✅ Done 2026-05-01
+- Retry `libgd3` upgrade when `ppa.launchpadcontent.net` is reachable from production (deferred — repo unreachable during upgrade, no functional impact).
+- Delete pre-update DigitalOcean snapshot (`before-system-updates-2026-05-01`) ~1 week after 2026-05-01 if no issues surface (~$0.18/month while it exists).
+- Explicit `WA_FEATURE_ENABLED=false` in production `.env` (currently relies on config default).
+- ~~`deploy.sh` added to git (8bfa975) — `core.fileMode false` fix included.~~ ✅ Done 2026-05-01
+- Permission drift — `core.fileMode false` in place. If drift returns, investigate root cause before adding `chmod` to deploy.sh (blanket chmod risks breaking legitimately-executable files).
+- Sales team onboarding — roles, permissions, first-login flow design.
+- Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
+- Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
 
 ---
 
@@ -52,6 +127,25 @@ Read this file at the start of every session. Then read `BRAIN.md` for business 
 ## Current Phase
 
 **Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed. Awaiting external dependencies before Phase 4.
+
+---
+
+## Production SSH Access
+
+**Root login is DISABLED. Password auth is DISABLED. Key-only access enforced.**
+
+| Field | Value |
+|---|---|
+| Server | `144.126.225.3` / `crm.market-funded.com` |
+| User | `deployer` (NOT root — root SSH disabled) |
+| Key | `~/.ssh/mfu_production` on Werner's Mac (Ed25519, passphrase-protected) |
+| Sudo | `deployer` has full sudo access |
+| Connection | `ssh -i ~/.ssh/mfu_production deployer@144.126.225.3` |
+| Backup config | `/etc/ssh/sshd_config.backup` on server |
+
+**Ubuntu 24.04 note:** `/etc/ssh/sshd_config.d/50-cloud-init.conf` overrides the main sshd_config. This file must have `PasswordAuthentication no` — the main file alone is not sufficient on DigitalOcean droplets.
+
+**Security context:** fail2ban active, 1,212+ IPs banned (server was under active brute-force attack before hardening). Public key also stored in DigitalOcean account-level SSH key store.
 
 ---
 
@@ -122,9 +216,10 @@ These are blocking real-world functionality. Do not attempt workarounds — wait
 
 **Tomorrow's likely starting points (in priority order):**
 1. If Meta cooldown cleared: `developers.facebook.com` → create app → add WhatsApp product → register SIM number → generate System User token → capture 5 `WA_*` credentials → add to production `.env` → first test send → tag `v1.1.0`
-2. If Meta still blocked: SSH hardening (dedicated task — generate keys, disable password auth, create deployer user)
-3. Or: pull `deploy.sh` into git repo + add permission normalisation step
-4. Or: Phase 4 prep (health scoring factors 5 & 6, or review `market-funded-crm-phase-0-brief.md`)
+2. Pull `deploy.sh` into git repo + add permission normalisation step
+3. Verify ufw port 8080 is intentional (assumed Reverb WebSocket — remove if not needed)
+4. Apply pending system updates on server (13 available, 5 security; requires restart — schedule a maintenance window)
+5. Phase 4 prep (health scoring factors 5 & 6, or review `market-funded-crm-phase-0-brief.md`)
 
 ---
 
@@ -133,7 +228,7 @@ These are blocking real-world functionality. Do not attempt workarounds — wait
 1. **Production `.env`** — add `WA_FEATURE_ENABLED=false` explicitly when populating Meta credentials (currently relies on config default)
 2. **`deploy.sh` not in git** — file exists on server at `/var/www/market-funded-crm/deploy.sh` but unversioned
 3. **Permission drift** — `core.fileMode` was `true` on server causing phantom diffs; fixed to `false`. Consider `chmod` normalisation in `deploy.sh`
-4. **SSH hardening** — password auth as root, no keys. Separate dedicated task. Plan: generate keys, add via DO console, disable password auth, create deployer user, verify ufw, optionally install fail2ban
+4. **SSH hardening** — ✅ COMPLETE (2026-04-30). See Production SSH Access section above.
 
 ---
 

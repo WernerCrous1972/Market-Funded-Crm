@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Maintenance — System updates + kernel reboot (2026-05-01)
+
+Applied 22 pending Ubuntu updates including kernel jump from 6.8.0-71 to 6.8.0-111. DigitalOcean snapshot taken before changes. Server rebooted cleanly. All services (Nginx, Postgres, Redis, Supervisor) auto-restarted. All CRM workers (Horizon, Reverb, Scheduler) verified running. Site confirmed 200 OK and Filament admin functional.
+
+One package (`libgd3` from `ppa.launchpadcontent.net`) deferred — repo was unreachable from production. No functional impact; retry when repo is back online.
+
+---
+
+### Added — `deploy.sh` to git (2026-05-01)
+
+The deploy script that lives at `/var/www/market-funded-crm/deploy.sh` on production was previously not version-controlled. Pulled into the repo with one enhancement: added `git config core.fileMode false` before `git pull origin main` to prevent the phantom permission diffs that blocked the 2026-04-29 deploy.
+
+Script content (25 lines): `cd` into repo, set `core.fileMode false`, `git pull`, `composer install`, `npm ci && npm run build`, `php artisan migrate --force`, cache config/routes/views, `supervisorctl restart all`.
+
+Committed (8bfa975) and pushed. Future deploys run as `bash deploy.sh` on the server. The server's copy will sync automatically on next real deploy.
+
+---
+
+### Hardened — Production SSH (2026-04-30)
+
+Production server SSH fully hardened. Root login and password authentication both disabled; key-only access enforced via a new `deployer` user.
+
+**What was done:**
+- Generated Ed25519 key pair on Werner's Mac (`~/.ssh/mfu_production`, passphrase-protected).
+- Installed public key for both `root` and new `deployer` user (UID 1001, full sudo).
+- Set `PermitRootLogin no` and `PasswordAuthentication no` in `/etc/ssh/sshd_config`.
+- **Ubuntu 24.04 gotcha:** `/etc/ssh/sshd_config.d/50-cloud-init.conf` was overriding the main config with `PasswordAuthentication yes`. Edited that file directly. Verified effective config via `sudo sshd -T`.
+- Confirmed ufw active: OpenSSH, Nginx Full, port 8080 (Reverb — verify if needed).
+- Public key added to DigitalOcean account-level SSH key store for future droplets.
+
+**Attack data discovered during hardening:**
+fail2ban was already installed (2 days). At time of hardening: 6,419 total failed SSH attempts, 1,212 unique IPs banned, 4 currently banned. The server was under sustained brute-force attack with root password auth previously exposed. Now closed.
+
+**New connection:** `ssh -i ~/.ssh/mfu_production deployer@144.126.225.3`
+
+**Open follow-ups from this session:**
+- Port 8080 in ufw — assumed Reverb WebSocket, not yet confirmed. Remove if unused.
+- 13 system updates pending (5 security), restart required — schedule maintenance window.
+
+See BRAIN.md §16 for full details.
+
+---
+
 ### Diagnosed — Production MTR API blocked at Cloudflare layer (2026-04-30)
 
 The production droplet (`144.126.225.3`) reaches Match-Trader's API endpoint in ~68ms — connectivity is fine. However, HTTP 403 responses carry `server: cloudflare` and `cf-mitigated: challenge` headers, confirming the block is at Cloudflare's WAF/bot-protection layer, not Match-Trader's origin server.

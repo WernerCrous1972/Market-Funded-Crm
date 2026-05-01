@@ -481,6 +481,46 @@ config/whatsapp.php
 
 ---
 
+## 16. Production Server SSH Access
+
+**Hardened 2026-04-30. Root login disabled. Password auth disabled. Key-only.**
+
+| Field | Value |
+|---|---|
+| IP / hostname | `144.126.225.3` / `crm.market-funded.com` |
+| Login user | `deployer` — full sudo, UID 1001 |
+| Auth method | Ed25519 key only — `~/.ssh/mfu_production` on Werner's Mac |
+| Root SSH | Disabled (`PermitRootLogin no`) |
+| Password auth | Disabled (`PasswordAuthentication no`) |
+| Connection | `ssh -i ~/.ssh/mfu_production deployer@144.126.225.3` |
+| Config backup | `/etc/ssh/sshd_config.backup` on server |
+| DO key store | Public key registered in DigitalOcean account — available for new droplets |
+
+### Ubuntu 24.04 split SSH config — important
+
+DigitalOcean Ubuntu 24.04 droplets ship with `/etc/ssh/sshd_config.d/50-cloud-init.conf` containing `PasswordAuthentication yes`. This file takes precedence over the main `/etc/ssh/sshd_config`. When hardening SSH on a DO droplet, **both files must be updated** — or `50-cloud-init.conf` must be edited to set `no`. Verify the effective runtime config with:
+
+```bash
+sudo sshd -T | grep -E "permitrootlogin|passwordauthentication"
+```
+
+### Security context (as of 2026-04-30)
+
+fail2ban was already installed and running before hardening began. At the time of hardening:
+- **6,419 total failed SSH attempts** logged
+- **1,212 unique IPs banned** to date
+- **4 currently banned:** `45.148.10.151`, `45.148.10.152`, `92.118.39.236`, `2.57.122.197`
+
+The server had root password auth enabled during this attack window — the hardening closed the exposure. fail2ban continues to monitor and ban.
+
+### ufw firewall rules (confirmed active 2026-04-30)
+
+- OpenSSH — allowed
+- Nginx Full (80 + 443) — allowed
+- Port 8080 — allowed (assumed Reverb WebSocket — verify and remove if unused)
+
+---
+
 ## 15. Market Funded Legal Entity & Meta Business Context
 
 **This matters because Meta Business Verification asks for a legal entity name and documents.**
