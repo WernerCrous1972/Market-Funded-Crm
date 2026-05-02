@@ -66,19 +66,20 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 
 > **Maintenance note:** Add items as they're identified. Remove or strike through when complete.
 
+- **Phase C browser smoke test (A–J)** — run on local before any production work. Setup + matrix in "Next Session — First Task" above.
+- **Cloudflare MTR whitelist** — production droplet `144.126.225.3` still blocked (`cf-mitigated: challenge`). External blocker. Re-test with `curl -sI` diagnostic when MTR confirms action taken.
+- **Migration bootstrap email — must not hardcode** — `2026_05_02_000001` hardcodes `werner@market-funded.com`; silently skipped on production. Next migration that bootstraps a user must use `config('app.super_admin_email')` or equivalent. Add a post-migration assertion that verifies the row was actually updated.
+- **Production first-sync plan** — when Cloudflare resolves: (1) run `mtr:sync --full` with `memory_limit=1G`, expect ~29k people + ~5.8k transactions, ETA ~8–12 min; (2) watch Horizon dashboard for failures; (3) verify `php artisan tinker` people/transaction counts match prior local sync; (4) trigger `metrics:refresh` after sync completes.
+- **Sales team onboarding flow** — create CRM users with exact MTR account_manager name strings so `account_manager_user_id` auto-populates on next sync. Roles, permissions, first-login guide.
 - Port 8080 ufw rule on production — assumed Reverb WebSocket, not yet verified. Confirm or remove.
 - ~~System updates + kernel reboot complete (kernel 6.8.0-111, all services up).~~ ✅ Done 2026-05-01
 - Retry `libgd3` upgrade when `ppa.launchpadcontent.net` is reachable from production (deferred — repo unreachable during upgrade, no functional impact).
-- Delete pre-update DigitalOcean snapshot (`before-system-updates-2026-05-01`) ~1 week after 2026-05-01 if no issues surface (~$0.18/month while it exists).
+- Delete pre-update DigitalOcean snapshot (`before-system-updates-2026-05-01`) — delete ~2026-05-08 (~$0.18/month while it exists).
 - Explicit `WA_FEATURE_ENABLED=false` in production `.env` (currently relies on config default).
 - ~~`deploy.sh` added to git (8bfa975) — `core.fileMode false` fix included.~~ ✅ Done 2026-05-01
-- Permission drift — `core.fileMode false` in place. If drift returns, investigate root cause before adding `chmod` to deploy.sh (blanket chmod risks breaking legitimately-executable files).
-- ~~**Fix deploy.sh for non-root deploys**~~ ✅ Done 2026-05-02 — sudoers exception added (`/etc/sudoers.d/deployer-supervisor`), deploy.sh updated to `sudo -n supervisorctl restart all`. Full end-to-end deploy as `deployer` verified.
-- Investigate adding `php artisan test` pre-deploy gate to deploy.sh — abort on any failure. Today's production deploy did not run tests first.
-- Investigate one-off transient supervisorctl Python/xmlrpc error on first post-fix deploy — if it recurs, investigate lock conflict with view:cache step. Non-blocking.
-- Document MTR back-dating behaviour in BRAIN.md §13 — gateways report deposits 3-6 days late; measure sync health by `synced_at` count, not `occurred_at` of latest record. ✅ Done 2026-05-02
-- Delete `deploy.sh.local-backup` from production server once new deploy.sh is verified across multiple deploys (~1 week).
-- Sales team onboarding — roles, permissions, first-login flow design.
+- ~~**Fix deploy.sh for non-root deploys**~~ ✅ Done 2026-05-02 — sudoers exception added, `sudo -n supervisorctl restart all`. Verified.
+- Investigate adding `php artisan test` pre-deploy gate to deploy.sh — abort on any failure.
+- Delete `deploy.sh.local-backup` from production server once new deploy.sh verified across multiple deploys.
 - Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
 - Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
 
@@ -132,14 +133,59 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 ## Current Phase
 
 **Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed.
-**Phase B (permission system) + Phase C (permission enforcement)** ✅ Built locally. Not yet deployed — will ship together as v1.2.0 (after v1.1.0 first WhatsApp send).
+**Phase B + Phase C (permission system + enforcement)** ✅ Deployed to production 2026-05-03 as v1.2.0.
 
-**Phase C test count: 194 tests passing.**
+**194 tests passing.**
 
-Before deploying Phase B + C:
-1. Run `php artisan migrate` — will execute migrations 000001 (Phase B) and 000002 (Phase C), outputting backfill counts
-2. Verify migration data-step output counts look correct before anything else
-3. Fix `deploy.sh` supervisorctl sudo issue (see Open Follow-ups)
+**Production state:** DB empty pending Cloudflare MTR API whitelist. No sync data yet. Werner manually bootstrapped `is_super_admin = true` — migration hardcoded `werner@market-funded.com` but production CRM login is `werner.c@me.com`.
+
+**Next:** Phase C browser smoke test (A–J matrix). See "Next Session — First Task" section below.
+
+---
+
+## Next Session — First Task
+
+**Phase C browser smoke test.** Run against local data before any production work.
+
+### Setup (tinker)
+
+```bash
+php artisan tinker
+```
+```php
+// 1. Get Susan's ID (create her first at /admin/users — template: Sales Agent (assigned only), branch: Market Funded)
+$id = App\Models\User::where('email','susan@test.local')->value('id');
+
+// 2. Assign one Market Funded person to her
+App\Models\Person::where('branch','Market Funded')->first()->tap(function($p) use ($id) {
+    $p->account_manager_user_id = $id;
+    $p->account_manager = 'Susan';
+    $p->save();
+    echo $p->first_name . ' ' . $p->last_name;
+});
+```
+
+Then open incognito and log in as Susan.
+
+### 10-Check Matrix
+
+| # | Check | Action | Pass condition |
+|---|---|---|---|
+| A | Branch scoping | `/admin/people` | Only Market Funded people visible |
+| B | Assigned-only | `/admin/people` | Only the 1 assigned person visible (assigned_only = true) |
+| C | Financials hidden | Open assigned person's detail | No Financial Summary section, no Deposit Chart, no health score |
+| D | Direct URL 403 | Paste URL of a person from a different branch | 403 Forbidden |
+| E | Edit form mini | "Edit Contact" action on assigned person | Only `lead_status` + `account_manager` fields — not full form |
+| F | No email campaigns | Sidebar nav | "Email Campaigns" absent |
+| G | Expand branches | Admin tab: add QuickTrade to Susan (keep Market Funded ticked). Refresh incognito `/admin/people` | People from both branches visible |
+| H | Revoke all branches | Admin tab: untick ALL branches. Refresh incognito `/admin/people` | Empty state: "You are not assigned to any branches. Contact your administrator." |
+| I | Re-add branch | Admin tab: add Market Funded back. Refresh incognito | Assigned person reappears |
+| J | Toggle financials on | Admin tab: enable `can_view_client_financials` + `can_view_health_scores`. Refresh person detail in incognito | Financial Summary + health score now visible |
+
+**G warning:** Branch list is a full sync — every unticked branch gets revoked. Keep Market Funded ticked when adding QuickTrade.
+
+### Cleanup
+Delete Susan via `/admin/users` after all 10 checks pass.
 
 ---
 

@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.0] — 2026-05-02
+## [1.2.0] — 2026-05-03
+
+### Deployed to production — 2026-05-03
+
+Commit `747a4df` deployed via `deploy.sh` as `deployer` user. Both migrations ran on production.
+
+**Bootstrap email bug (manually fixed):** Migration `2026_05_02_000001` hardcodes `where('email', 'werner@market-funded.com')` for the super-admin bootstrap step. Production CRM user was created with `werner.c@me.com` — bootstrap silently skipped. Manually fixed via interactive SSH tinker: `is_super_admin = true`, all 13 permission flags set, branch pivot rows inserted. **Next migration must not hardcode email — use env var or config.**
+
+**Production database:** Empty pending Cloudflare MTR API whitelist. No people, transactions, or sync data on production yet. Phase B + C are live and correct but untestable against real data until the whitelist resolves.
+
+**Phase C browser smoke test:** 10-check A–J matrix not yet run. Scheduled for next session using local data.
+
+---
 
 ### Phase B + Phase C: Full permission system (161 → 194 tests)
 
