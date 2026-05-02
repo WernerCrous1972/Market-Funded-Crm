@@ -20,6 +20,6 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
-supervisorctl restart all
+sudo -n supervisorctl restart all
 
 echo "✅ Deploy complete!"
