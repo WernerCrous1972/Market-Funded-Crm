@@ -24,12 +24,27 @@ class UserFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => fake()->name(),
-            'email' => fake()->unique()->safeEmail(),
-            'email_verified_at' => now(),
-            'password' => static::$password ??= Hash::make('password'),
-            'remember_token' => Str::random(10),
-            'role'               => 'SALES_AGENT',
+            'name'                       => fake()->name(),
+            'email'                      => fake()->unique()->safeEmail(),
+            'email_verified_at'          => now(),
+            'password'                   => static::$password ??= Hash::make('password'),
+            'remember_token'             => Str::random(10),
+            'role'                       => 'SALES_AGENT',
+            // Phase B permission defaults — must match DB defaults (false)
+            'is_super_admin'             => false,
+            'assigned_only'              => false,
+            'can_view_client_financials' => false,
+            'can_view_branch_financials' => false,
+            'can_view_health_scores'     => false,
+            'can_make_notes'             => false,
+            'can_send_whatsapp'          => false,
+            'can_send_email'             => false,
+            'can_create_email_campaigns' => false,
+            'can_edit_clients'           => false,
+            'can_assign_clients'         => false,
+            'can_create_tasks'           => false,
+            'can_assign_tasks_to_others' => false,
+            'can_export'                 => false,
         ];
     }
 

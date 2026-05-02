@@ -41,10 +41,10 @@ describe('mtr:sync command', function () {
         $mockClient = Mockery::mock(Client::class);
 
         $mockClient->shouldReceive('allPropChallenges')->once()->andReturn((function () { yield from []; })());
-        $mockClient->shouldReceive('allAccounts')->once()->andReturn((function () { yield from []; })());
         $mockClient->shouldReceive('allPropAccounts')->once()->andReturn((function () { yield from []; })());
 
-        // These should NOT be called
+        // These should NOT be called (allAccounts removed — job now does lazy per-email lookups via accountByEmail)
+        $mockClient->shouldNotReceive('allAccounts');
         $mockClient->shouldNotReceive('branches');
         $mockClient->shouldNotReceive('offers');
         $mockClient->shouldNotReceive('allDeposits');

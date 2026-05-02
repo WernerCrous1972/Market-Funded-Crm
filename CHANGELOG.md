@@ -7,7 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.2.0] — 2026-05-02
+
+### Phase B + Phase C: Full permission system (161 → 194 tests)
+
+### Built — Phase C: Permission enforcement (2026-05-02)
+
+Enforces the Phase B permission model across the CRM UI. All views, widgets, and actions now respect user toggles and branch scoping. Not yet deployed — shipping with v1.1.0 alongside Phase B.
+
+#### Database (migration `2026_05_02_000002`)
+- `people.branch_id uuid nullable FK → branches.id` — ID-based branch FK (rename-safe). Retroactively populated from `branch` name string. Migration outputs backfill counts (total, % with branch_id, % with account_manager_user_id, orphan count).
+- `people.account_manager_user_id uuid nullable FK → users.id` — UUID FK for assigned_only scoping. Retroactively populated by name match against users table.
+- **Null `branch_id` fail-safe:** person with no resolved branch is invisible to all scoped users — correct interim state, not a data error. Resolves on next sync or explicit assignment. (See BRAIN.md §17.)
+
+#### New files
+- `app/Policies/PersonPolicy.php` — `view()` enforces branch access or assigned_only rule. Registered via `Gate::policy()` in AppServiceProvider. `Gate::before()` still bypasses for super admins.
+- `tests/Feature/PhaseCPermissionsTest.php` — 14 tests
+
+#### Updated files
+- `app/Models/Person.php` — `branch_id` + `account_manager_user_id` added to `$fillable`, `branchModel()` + `accountManager()` relationships (named `branchModel` to avoid collision with existing `branch` string column)
+- `app/Jobs/Sync/SyncAccountsJob.php` — populates `branch_id` (Branch FK from branchLookup) + `account_manager_user_id` (name→user lookup); logs debug warning when account_manager name has no CRM user match
+- `app/Jobs/Sync/SyncOurChallengeBuyersJob.php` — `buildPersonData()` now includes `branch_id` + `account_manager_user_id`; `resolveBranchName()` refactored through new `resolveBranchModel()` helper; ghost records explicitly set both to null
+- `app/Filament/Resources/PersonResource.php` — `getEloquentQuery()` applies branch/assigned_only scoping; financial and health table columns gated by `visible()`; Financial Summary + Health Score infolist sections gated by `visible()`; empty state messages differentiate "no branch access" from "no results"
+- `app/Filament/Resources/PersonResource/Pages/ViewPerson.php` — `sendWhatsApp` gated on `can_send_whatsapp`; `addNote` gated on `can_make_notes`; `createTask` gated on `can_create_tasks`; new "Edit Contact" action (can_edit_clients = full form, can_assign_clients only = lead_status + account_manager mini form)
+- `app/Filament/Widgets/StatsOverviewWidget.php` — stats 1–2 always visible; stats 3–8 (financial) conditionally included based on `can_view_branch_financials`
+- `app/Filament/Widgets/GlobalDepositChartWidget.php` — `canView()` gated on `can_view_branch_financials`
+- `app/Filament/Widgets/AtRiskClientsWidget.php` — `canView()` gated on `can_view_health_scores`
+- `app/Filament/Widgets/RecentActivityWidget.php` — query branch-scoped: non-super-admin users see only activity for people in their branches (or their assigned contacts if `assigned_only`)
+- `app/Filament/Widgets/PersonDepositChartWidget.php` — `canView()` gated on `can_view_client_financials`
+- `app/Filament/Resources/EmailCampaignResource.php` — `canViewAny()` gated on `can_create_email_campaigns`
+- `app/Providers/AppServiceProvider.php` — `Gate::policy(Person::class, PersonPolicy::class)` registered
+- `database/factories/PersonFactory.php` — `branch_id` and `account_manager_user_id` added as nullable defaults
+- `tests/Feature/Phase2Test.php` — Filament page test user updated to super admin (required for person detail with null branch_id)
+- `tests/Feature/EmailCampaignTest.php` — Filament page test user updated to super admin (required for campaign pages with canViewAny gate)
+- `tests/Feature/TaskQueueTest.php` — `is_due_today` test uses `today()->setHour(12)` instead of `now()->addHours(2)` to prevent UTC midnight crossing flakiness
+
+#### Tests: 180 → 194 (+14)
+
+#### Not yet built
+- TransactionResource / TradingAccountResource person-level scoping
+- `can_export` bulk action guard
+- Note/task edit+delete ADMIN-only enforcement in UI
+
+---
+
+### Built — Phase B: Permission system foundation (2026-05-02)
+
+Implements the full permission data model, user management UI, audit logging, and Gate infrastructure. Enforcement of permissions in the CRM views is Phase C (not yet built).
+
+#### Database (single atomic migration `2026_05_02_000001`)
+- 14 boolean permission columns added to `users` (all `NOT NULL DEFAULT false` — see BRAIN.md §17 for full list)
+- `user_branch_access` pivot table (users ↔ branches, many-to-many, with `granted_at` + `granted_by`)
+- `permission_audit_logs` table (immutable, no `updated_at`, index on `target_user_id, created_at`)
+- `permission_templates` table + 7 starter templates seeded inline (Super Admin, Admin, Broker Partner, Master IB / IB / Sales Manager, Sales Agent assigned-only, Sales Agent full-branch, Viewer)
+- Bootstrap data: Werner's `is_super_admin = true`, branch pivot rows for Market Funded + QuickTrade, one bootstrap audit log entry
+
+#### New files
+- `app/Models/PermissionTemplate.php` — 7-template catalog, `safeToggles()` helper strips `is_super_admin` for non-super-admin actors
+- `app/Models/PermissionAuditLog.php` — immutable log model, `record()` factory helper, 6 `TYPE_*` constants
+- `app/Observers/UserPermissionObserver.php` — watches `User::updated`, writes `TOGGLE_CHANGED` / `SUPER_ADMIN_GRANTED` / `SUPER_ADMIN_REVOKED` per changed column
+- `app/Filament/Resources/UserResource.php` — Users & Permissions page, template picker (strips `is_super_admin` for non-super-admins), grouped toggle sections, branch CheckboxList, promote/revoke super admin table actions
+- `app/Filament/Resources/UserResource/Pages/CreateUser.php` / `EditUser.php` / `ListUsers.php`
+- `app/Filament/Resources/UserResource/RelationManagers/PermissionAuditLogRelationManager.php` — Permission History tab on user edit page
+- `database/factories/BranchFactory.php`
+- `tests/Feature/PhaseBPermissionsTest.php` — 19 tests
+
+#### Updated files
+- `app/Models/User.php` — 14 fillable + cast booleans, `branches()` BelongsToMany, `permissionAuditLogs()` HasMany, `hasBranchAccess()` helper
+- `app/Models/Branch.php` — `usersWithAccess()` BelongsToMany
+- `app/Providers/AppServiceProvider.php` — `Gate::before()` super admin bypass, `User::observe(UserPermissionObserver::class)`
+- `database/factories/UserFactory.php` — 14 boolean defaults added
+- `app/Console/Commands/MtrSync.php` — `ini_set('memory_limit', '1G')` at command start (fix for memory exhaustion on full sync)
+- `app/Jobs/Sync/SyncOurChallengeBuyersJob.php` — removed 29k-account in-memory `$crmMap` pre-load; replaced with DB lookup + lazy `accountByEmail()` per ghost record (fix for 1GB memory exhaustion)
+- `app/Services/MatchTrader/Client.php` — added `accountByEmail(string $email): ?array`
+
+#### Tests: 161 → 180 (+19)
+
+#### Bugs fixed during Phase B build
+- `getRelationManagers()` → `getRelations()` (Filament v3 correct method name — wrong name silently ignored)
+- `formatStateUsing(array $state)` → `(mixed $state)` in relation manager — Filament passes raw JSON string, not decoded array
+- Memory exhaustion on `mtr:sync --full` — two fixes: `ini_set` in command + `$crmMap` pre-load removal in challenge buyers job
+
+#### Not yet built (Phase C)
+- Branch + `assigned_only` query scoping in PersonResource
+- 403 on direct URL to inaccessible person
+- `can_edit_clients` / `can_assign_clients` form enforcement
+- `can_view_client_financials` section hiding on person detail
+- `can_view_branch_financials` widget hiding on dashboard
+- `can_view_health_scores` widget/column hiding
+- `can_make_notes` / `can_send_whatsapp` / `can_send_email` action guards
+- `can_export` bulk action guard
+- `can_create_email_campaigns` nav hiding
+- Note/task edit+delete ADMIN-only enforcement
+- TransactionResource / TradingAccountResource scoping
+
+---
+
+### Fixed — deploy.sh permission walls (2026-05-02)
+
+Resolved supervisorctl permission issue blocking non-root deploys. Added narrow sudoers exception for `deployer` user (`/etc/sudoers.d/deployer-supervisor`), modified deploy.sh to use `sudo -n supervisorctl restart all`. Full deploy.sh now runs cleanly end-to-end as deployer. One transient retry needed on first post-fix run (suspected interaction with prior view:cache step) — non-recurring.
+
+Diagnostic: yesterday's "missing today's transactions" investigation traced to back-dated MTR records — gateways report deposits 3-6 days after actual transaction time. Sync is working correctly; the appearance of "no new data" was MTR records arriving with old timestamps. See BRAIN.md §13 for detail.
+
+Commit: `a7a90cd`
+
+---
+
+### Deployed — Phase A: Branch column + account_manager filter (2026-05-01)
+
+Phase A UI changes shipped to production. People list now shows Branch column by default (sortable). Account Manager promoted to top-level searchable filter. Transactions list gained Branch column (toggleable, hidden by default) with branch SelectFilter.
+
+Code commits: `b3d05ae` (PersonResource + TransactionResource), `01b3aac` (docs).
+
+**Deploy issues surfaced (not blockers, but need addressing):**
+- `deploy.sh` doesn't currently handle non-root deploys cleanly. Four permission walls hit during first run as `deployer` user: git safe.directory, root-owned .git files (legacy from April 29 root deploy), untracked deploy.sh conflict, and supervisorctl socket permissions.
+- Repo ownership reset to `www-data:www-data` with `775/664` permissions. `deployer` added to `www-data` group.
+- `supervisorctl restart all` step in deploy.sh requires sudo. Currently deploy.sh's final step fails silently; workers must be restarted manually with `sudo supervisorctl restart all` after each deploy.
+
+---
 
 ### Maintenance — System updates + kernel reboot (2026-05-01)
 

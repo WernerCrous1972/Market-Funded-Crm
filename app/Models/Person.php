@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\Branch;
+use App\Models\User;
 
 class Person extends Model
 {
@@ -29,7 +31,9 @@ class Person extends Model
         'lead_source',
         'affiliate',
         'branch',
+        'branch_id',
         'account_manager',
+        'account_manager_user_id',
         'became_active_client_at',
         'last_online_at',
         'notes_contacted',
@@ -95,6 +99,16 @@ class Person extends Model
     public function duplicates(): HasMany
     {
         return $this->hasMany(Person::class, 'duplicate_of_person_id');
+    }
+
+    public function branchModel(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class, 'branch_id');
+    }
+
+    public function accountManager(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'account_manager_user_id');
     }
 
     // ── Scopes ────────────────────────────────────────────────────────────────

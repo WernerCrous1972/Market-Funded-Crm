@@ -11,6 +11,7 @@ use App\Jobs\Metrics\RefreshPersonMetricsJob;
 use App\Models\Activity;
 use App\Models\Note;
 use App\Models\Task;
+use App\Models\User;
 use App\Models\WhatsAppTemplate;
 use App\Services\WhatsApp\MessageSender;
 use App\Services\WhatsApp\ServiceWindowTracker;
@@ -59,10 +60,128 @@ class ViewPerson extends ViewRecord
     {
         return [
 
+            // ── Edit Contact ─────────────────────────────────────────────────
+            // Visible if user has can_edit_clients OR can_assign_clients (or super admin).
+            // Full form for can_edit_clients; mini form (lead_status + account_manager
+            // only) for can_assign_clients.
+            Actions\Action::make('editContact')
+                ->label('Edit Contact')
+                ->icon('heroicon-o-pencil-square')
+                ->color('gray')
+                ->visible(fn () => auth()->user()?->is_super_admin
+                    || auth()->user()?->can_edit_clients
+                    || auth()->user()?->can_assign_clients
+                )
+                ->fillForm(function (\App\Models\Person $record): array {
+                    return [
+                        'first_name'               => $record->first_name,
+                        'last_name'                => $record->last_name,
+                        'phone_e164'               => $record->phone_e164,
+                        'country'                  => $record->country,
+                        'lead_status'              => $record->lead_status,
+                        'lead_source'              => $record->lead_source,
+                        'affiliate'                => $record->affiliate,
+                        'notes_contacted'          => $record->notes_contacted,
+                        'account_manager_user_id'  => $record->account_manager_user_id,
+                    ];
+                })
+                ->form(function (): array {
+                    $user    = auth()->user();
+                    $canEdit = $user?->is_super_admin || $user?->can_edit_clients;
+                    $fields  = [];
+
+                    if ($canEdit) {
+                        $fields[] = Forms\Components\Grid::make(2)->schema([
+                            Forms\Components\TextInput::make('first_name')
+                                ->label('First Name')
+                                ->required()
+                                ->maxLength(100),
+
+                            Forms\Components\TextInput::make('last_name')
+                                ->label('Last Name')
+                                ->required()
+                                ->maxLength(100),
+
+                            Forms\Components\TextInput::make('phone_e164')
+                                ->label('Phone (E.164)')
+                                ->maxLength(20),
+
+                            Forms\Components\TextInput::make('country')
+                                ->label('Country (ISO-2)')
+                                ->maxLength(3),
+
+                            Forms\Components\TextInput::make('lead_source')
+                                ->label('Lead Source')
+                                ->maxLength(100),
+
+                            Forms\Components\TextInput::make('affiliate')
+                                ->label('Affiliate / IB')
+                                ->maxLength(100),
+                        ]);
+
+                        $fields[] = Forms\Components\Toggle::make('notes_contacted')
+                            ->label('Mark as contacted');
+                    }
+
+                    // Always included for can_assign_clients and can_edit_clients
+                    $fields[] = Forms\Components\TextInput::make('lead_status')
+                        ->label('Lead Status')
+                        ->maxLength(50)
+                        ->placeholder('e.g. HOT LEAD, WARM, COLD');
+
+                    $fields[] = Forms\Components\Select::make('account_manager_user_id')
+                        ->label('Account Manager')
+                        ->options(fn () => User::orderBy('name')->pluck('name', 'id'))
+                        ->searchable()
+                        ->nullable()
+                        ->placeholder('Unassigned');
+
+                    return $fields;
+                })
+                ->action(function (array $data): void {
+                    $person  = $this->getRecord();
+                    $user    = auth()->user();
+                    $canEdit = $user?->is_super_admin || $user?->can_edit_clients;
+
+                    $updateData = [
+                        'lead_status' => $data['lead_status'] ?? $person->lead_status,
+                    ];
+
+                    // Resolve account manager name from the selected user ID
+                    $amUserId = $data['account_manager_user_id'] ?? null;
+                    $amUser   = $amUserId ? User::find($amUserId) : null;
+
+                    $updateData['account_manager_user_id'] = $amUserId;
+                    $updateData['account_manager']         = $amUser?->name;
+
+                    if ($canEdit) {
+                        $updateData['first_name']      = $data['first_name'];
+                        $updateData['last_name']       = $data['last_name'];
+                        $updateData['phone_e164']      = $data['phone_e164'] ?: null;
+                        $updateData['country']         = $data['country'] ?: null;
+                        $updateData['lead_source']     = $data['lead_source'] ?: null;
+                        $updateData['affiliate']       = $data['affiliate'] ?: null;
+                        $updateData['notes_contacted'] = $data['notes_contacted'] ?? false;
+                    }
+
+                    $person->update($updateData);
+
+                    Activity::record(
+                        personId: $person->id,
+                        type: 'CONTACT_EDITED',
+                        description: 'Contact details updated by ' . ($user?->name ?? 'unknown'),
+                        userId: $user?->id,
+                    );
+
+                    Notification::make()->title('Contact updated')->success()->send();
+                    $this->redirect(static::getResource()::getUrl('view', ['record' => $person->id]));
+                }),
+
             Actions\Action::make('sendWhatsApp')
                 ->label('Send WhatsApp')
                 ->icon('heroicon-o-chat-bubble-bottom-center-text')
                 ->color('success')
+                ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_send_whatsapp)
                 ->form(function (): array {
                     $person  = $this->getRecord();
                     $tracker = app(ServiceWindowTracker::class);
@@ -157,6 +276,7 @@ class ViewPerson extends ViewRecord
                 ->label('Add Note')
                 ->icon('heroicon-o-document-plus')
                 ->color('info')
+                ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_make_notes)
                 ->form([
                     Forms\Components\TextInput::make('title')
                         ->label('Title')
@@ -197,6 +317,7 @@ class ViewPerson extends ViewRecord
                 ->label('Create Task')
                 ->icon('heroicon-o-check-circle')
                 ->color('warning')
+                ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_create_tasks)
                 ->form([
                     Forms\Components\TextInput::make('title')
                         ->label('Task')

@@ -130,7 +130,7 @@ describe('Email tracking routes', function () {
 describe('Filament email pages', function () {
 
     beforeEach(function () {
-        $user = User::factory()->create(['role' => 'ADMIN']);
+        $user = User::factory()->create(['role' => 'ADMIN', 'is_super_admin' => true]);
         $this->actingAs($user);
     });
 

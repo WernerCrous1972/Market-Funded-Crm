@@ -378,6 +378,16 @@ curl -sI --max-time 10 -H "Authorization: Bearer $TOKEN" "$MTR_BASE_URL/v1/branc
 
 **Base URL note:** Production `.env` uses `crm-quicktrade.match-trade.com` (not `broker-api-quicktrade.match-trade.com` as in local dev). Both endpoints should be covered by the whitelist request.
 
+### MTR back-dates payment gateway records (confirmed 2026-05-02)
+
+Deposits and withdrawals sourced from payment gateways (as opposed to manual entries) arrive in MTR with `occurred_at` timestamps that are **3-6 days prior** to when MTR receives them. This is normal gateway settlement / reconciliation delay.
+
+**Implication for sync monitoring:** Do NOT use `occurred_at` of the latest synced record as a health signal. A sync run at 2026-05-01 20:37 that inserts 10 deposits with `occurred_at` of 2026-04-25 to 2026-04-28 is correct and expected, not broken.
+
+**Correct health check:** Count `synced_at` entries per run — if new records are being inserted, sync is working.
+
+---
+
 ### Verified corrections (2026-04-26)
 
 | Endpoint / param | Docs say | Production | Status |
@@ -547,3 +557,132 @@ The server had root password auth enabled during this attack window — the hard
 - **Email** is always lowercased before insert and lookup (`setEmailAttribute` on `Person` model).
 - **Transactions are immutable** — no `updated_at` column. A deposit is never edited, only inserted or skipped.
 - **Branch filter must run before email validation** in sync jobs — avoids unnecessary DB lookups for excluded accounts.
+
+---
+
+## 17. Permission System (Phase B — built 2026-05-02)
+
+### Overview
+
+Every CRM user has 14 boolean permission columns on the `users` table. All default to `false`. Access is cumulative — there is no role-based inheritance beyond the `Gate::before` super admin bypass.
+
+### The 14 Permission Toggles
+
+| Column | Controls |
+|---|---|
+| `is_super_admin` | `Gate::before` bypass — passes every permission check unconditionally. Not a toggle in the UI — managed via a separate action. Only super admins can grant it. |
+| `assigned_only` | If `true`, user only sees people where they are the `account_manager`. If `false`, sees all people within their branch scope. |
+| `can_view_client_financials` | Per-person deposit/withdrawal history on the person detail page. |
+| `can_view_branch_financials` | Aggregated branch dashboards, `GlobalDepositChartWidget`, revenue stats, exportable financial reports. |
+| `can_view_health_scores` | Health scores on person records and the `AtRiskWidget`. |
+| `can_make_notes` | Create notes on people. Edit/delete is ADMIN-only by hardcoded rule — not toggle-controlled. |
+| `can_send_whatsapp` | Send WhatsApp messages via the CRM (subject to `WA_FEATURE_ENABLED`). |
+| `can_send_email` | Send individual emails via the CRM. |
+| `can_create_email_campaigns` | Create and schedule bulk email campaigns. |
+| `can_edit_clients` | Full edit scope on person record fields. |
+| `can_assign_clients` | Reassign `account_manager` on people. **Implicitly grants edit on `lead_status` and `account_manager` fields only** — no other field edits without `can_edit_clients`. |
+| `can_create_tasks` | Create tasks (for self by default). |
+| `can_assign_tasks_to_others` | Assign tasks to other users. Requires `can_create_tasks` to be meaningful. |
+| `can_export` | Bulk export person lists to CSV. |
+
+### Hardcoded Rules (not toggle-controlled — enforced in Gate/policies/UI)
+
+1. **Super admin bypass:** `Gate::before()` in `AppServiceProvider`. Returns `true` for any ability if `$user->is_super_admin`. Returns `null` for non-super-admins so normal policy evaluation continues. Only a super admin can grant `is_super_admin` — enforced by the "Promote to Super Admin" action visibility check.
+
+2. **Communication history visibility:** If a user can see a person (they pass branch + assigned_only checks), they see the person's **full** communication history — all notes, WhatsApp messages, email events, and tasks — regardless of who logged them. The history is not filtered to the current user's own entries.
+
+3. **Note and task edit/delete = ADMIN role only:** Create is toggle-controlled (`can_make_notes`, `can_create_tasks`). Edit and delete are hardcoded to require `role = ADMIN`. This is NOT a toggle — giving someone `can_make_notes` does not give them edit/delete. Sales agents can create, but only admins can modify or remove. **`role = 'ADMIN'` is the authoritative check for this rule — no permission toggle overrides it, and no template grants it.** This is intentional and permanent.
+
+4. **`can_assign_clients` implicit field scope:** When `can_assign_clients = true` and `can_edit_clients = false`, the person edit form shows **only** the `lead_status` and `account_manager` fields. All other fields are read-only. This is enforced in the EditPerson page form schema, not at the DB layer.
+
+5. **No branch access = no person visibility:** If `is_super_admin = false` and `user_branch_access` has no rows for this user, they see zero people. There is no fallback. A user must be explicitly granted at least one branch (or be super admin) to see any data.
+
+### Branch Scoping
+
+Branch access is stored in the `user_branch_access` pivot table (`user_id`, `branch_id`, `granted_at`, `granted_by`). This controls **who can see which people** in the CRM.
+
+**Important:** Branch scoping here is for UI visibility only. The import/ownership rules from §11 (brand-first rule) are independent — a person can be imported via brand code on an excluded branch, but their visibility in the CRM to a given user is still controlled by `user_branch_access`. These are two separate concerns that operate at different layers.
+
+### Audit Log (`permission_audit_logs`)
+
+Every permission change writes an immutable row to `permission_audit_logs`. No `updated_at`. The `change_type` values are:
+
+| `change_type` | When written |
+|---|---|
+| `TOGGLE_CHANGED` | Any of the 13 non-super-admin toggles changed. Written by `UserPermissionObserver` on `updated`. |
+| `SUPER_ADMIN_GRANTED` | `is_super_admin` flipped `false → true`. Written by observer. |
+| `SUPER_ADMIN_REVOKED` | `is_super_admin` flipped `true → false`. Written by observer. |
+| `BRANCH_GRANTED` | A branch row inserted in `user_branch_access`. Written explicitly in `UserResource::syncBranchAccess()`. |
+| `BRANCH_REVOKED` | A branch row deleted from `user_branch_access`. Written explicitly in `UserResource::syncBranchAccess()`. |
+| `TEMPLATE_APPLIED` | A permission template was applied via the template picker during user create/edit. Written explicitly in `UserResource::logTemplateApplication()`. |
+
+The `actor_user_id` is nullable — `null` means system-initiated (e.g., the bootstrap migration that set Werner's `is_super_admin`).
+
+### Template Pre-fill Semantics
+
+Templates **stamp** the 14 toggle values onto a user at creation or edit time. They do not stay linked. Editing a template after a user has been created has no effect on that user's existing toggles. The `permission_templates` table is purely a UI convenience — source of truth for a user's permissions is always the 14 columns on `users` + rows in `user_branch_access`.
+
+The `branch_access_default` column on `permission_templates` (`ALL` / `ONE` / `CONFIGURABLE`) is a UI hint only — it tells the create form how to pre-select branches. It is not enforced at the DB or policy layer.
+
+`is_super_admin` is hidden from the template picker UI for non-super-admin actors. The "Super Admin" template is hidden from the picker entirely for non-super-admin users. Super admin status is only grantable via the explicit "Promote to Super Admin" table action.
+
+### Dashboard Widget Gates (Phase C enforcement)
+
+| Widget | Gate | Behaviour |
+|---|---|---|
+| `StatsOverviewWidget` | Mixed | Stats 1–2 (Total Contacts, New Leads Today): always visible. Stats 3–8 (all dollar/deposit/withdrawal aggregates): `can_view_branch_financials` required. Widget always renders — `getStats()` conditionally includes financial stats. |
+| `GlobalDepositChartWidget` | `can_view_branch_financials` | Entire widget hidden. |
+| `RecentActivityWidget` | Branch-scoped | Not hidden — query filtered. Activities joined to people, restricted to the user's accessible branch_ids. A user with no branch access sees no activity. |
+| `AtRiskClientsWidget` | `can_view_health_scores` | Entire widget hidden. |
+| `PersonDepositChartWidget` | `can_view_client_financials` | Per-person chart on person detail page only (not dashboard). Hidden when toggle is off. |
+
+### Pre-Phase-C Schema Additions (migration required before Phase C build)
+
+Two columns added to `people` to enable robust scoping:
+
+1. **`branch_id uuid nullable FK → branches.id`** — denormalized FK populated at sync from the `branch` name string. Enables ID-based branch scoping (rename-safe). The `branch` varchar column remains for display. Populated retroactively on migration via `UPDATE people SET branch_id = branches.id FROM branches WHERE people.branch = branches.name`.
+
+2. **`account_manager_user_id uuid nullable FK → users.id`** — links a person to the CRM user who is their account manager. Populated two ways: (a) at sync by best-effort name match (`User::where('name', $name)->value('id')`), nullable if no match; (b) when explicitly reassigned via the "Edit Contact" / "Assign" action, both `account_manager` (string) and `account_manager_user_id` (UUID) are updated together. The `assigned_only` scope uses `WHERE account_manager_user_id = auth()->id()`.
+
+### Null `branch_id` Fail-Safe (Phase C)
+
+**If `people.branch_id` is `null`, the person is invisible to all non-super-admin users.** This is intentional and acts as a fail-safe:
+
+- Cause: ghost/cross-branch records imported via `SyncOurChallengeBuyersJob` with no CRM entry, OR a branch UUID that wasn't yet in our `branches` table at import time.
+- Effect: scoped users (`assigned_only = false`) filter by `whereIn('branch_id', userBranchIds)` — null is never in the list, so the person is excluded.
+- Resolution: the next full sync (`mtr:sync --full`) or incremental sync will attempt to resolve `branch_id` by name match. Alternatively, a super admin can manually set `branch_id` via tinker.
+- **Do not treat null `branch_id` as a data error.** It is the correct interim state for a person whose branch cannot yet be resolved.
+
+### `PersonResource::getEloquentQuery()` Scoping Rules (Phase C)
+
+```
+is_super_admin = true    → no WHERE added (sees everything)
+assigned_only  = true    → WHERE account_manager_user_id = auth()->id()
+assigned_only  = false   → WHERE branch_id IN (user_branch_access.branch_id for this user)
+```
+
+The `PersonPolicy::view()` enforces the same logic for direct URL access (prevents bypassing the list scope by hitting `/admin/people/{id}` directly). `Gate::before` ensures super admins bypass the policy entirely.
+
+### Edit Contact Action (Phase C)
+
+Added as a header action on `ViewPerson`. Visibility:
+- `can_edit_clients` or `can_assign_clients` (or `is_super_admin`) — button shows.
+- `can_edit_clients` (full form): first_name, last_name, phone_e164, country, lead_status, lead_source, affiliate, notes_contacted, account_manager.
+- `can_assign_clients` only (mini form): lead_status + account_manager (user select).
+
+When account_manager is changed via this action: both `account_manager` (string, for display) and `account_manager_user_id` (UUID FK) are updated atomically.
+
+### Sales Team Onboarding Note
+
+`account_manager_user_id` on people records is populated two ways:
+
+1. **At sync (best-effort name match):** `SyncAccountsJob` looks up `User::where('name', $accountManagerName)->value('id')`. This only matches if the CRM user's `name` field is an exact string match to the MTR account manager name. A sales agent whose MTR account manager name is "John Smith" needs a CRM user whose `name` is exactly "John Smith".
+
+2. **Via explicit assignment:** When a user with `can_assign_clients` uses the Edit Contact action to reassign a contact. This is reliable and immediate.
+
+**To wire up an existing MTR account manager to a CRM user:**
+1. Create the CRM user with `name` set to exactly the string that appears in MTR's `accountManager` field for their contacts.
+2. Run `php artisan mtr:sync --full` — the backfill UPDATE will populate `account_manager_user_id` for all their existing contacts.
+3. Future incremental syncs will keep it current.
+
+**Branch CheckboxList sync behaviour (confirmed in smoke test 2026-05-02):** The Edit User form's branch list is a full sync — unchecking a previously-granted branch revokes it. When adding a new branch for a user, ensure all previously-granted branches remain ticked.

@@ -98,8 +98,9 @@ describe('Task model', function () {
     });
 
     it('is_due_today returns true for tasks due today', function () {
+        // Use noon today (stable regardless of what time tests run — avoids UTC midnight crossing)
         $task = Task::factory()->make([
-            'due_at'       => now()->addHours(2),
+            'due_at'       => today()->setHour(12),
             'completed_at' => null,
         ]);
         expect($task->is_due_today)->toBeTrue();

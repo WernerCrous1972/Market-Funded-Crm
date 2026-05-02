@@ -22,6 +22,12 @@ class GlobalDepositChartWidget extends ChartWidget
 
     protected int | string | array $columnSpan = 'full';
 
+    public static function canView(): bool
+    {
+        $user = auth()->user();
+        return $user?->is_super_admin || $user?->can_view_branch_financials;
+    }
+
     protected static ?string $maxHeight = '280px';
 
     protected function getData(): array

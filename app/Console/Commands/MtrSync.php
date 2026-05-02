@@ -39,6 +39,8 @@ Usage:
 
     public function handle(Client $mtr): int
     {
+        ini_set('memory_limit', '1G');
+
         $dryRun      = (bool) $this->option('dry-run');
         $full        = (bool) $this->option('full');
         $incremental = (bool) $this->option('incremental');

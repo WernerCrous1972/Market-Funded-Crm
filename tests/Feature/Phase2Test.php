@@ -228,7 +228,7 @@ describe('Person model - Phase 2', function () {
 describe('Filament Phase 2 pages', function () {
 
     beforeEach(function () {
-        $user = User::factory()->create(['role' => 'ADMIN']);
+        $user = User::factory()->create(['role' => 'ADMIN', 'is_super_admin' => true]);
         $this->actingAs($user);
     });
 

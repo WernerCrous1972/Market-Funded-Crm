@@ -19,6 +19,12 @@ class EmailCampaignResource extends Resource
     protected static ?string $navigationLabel = 'Campaigns';
     protected static ?int    $navigationSort  = 21;
 
+    public static function canViewAny(): bool
+    {
+        $user = auth()->user();
+        return $user?->is_super_admin || $user?->can_create_email_campaigns;
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([

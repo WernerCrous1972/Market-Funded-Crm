@@ -7,6 +7,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Branch extends Model
 {
@@ -27,5 +28,13 @@ class Branch extends Model
         return [
             'is_included' => 'boolean',
         ];
+    }
+
+    // ── Relationships ────────────────────────────────────────────────────────
+
+    public function usersWithAccess(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_branch_access')
+            ->withPivot(['granted_at', 'granted_by']);
     }
 }

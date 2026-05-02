@@ -15,6 +15,9 @@ class StatsOverviewWidget extends BaseWidget
 
     protected function getStats(): array
     {
+        $user               = auth()->user();
+        $canViewFinancials  = $user?->is_super_admin || $user?->can_view_branch_financials;
+
         $totalPeople  = Person::count();
         $totalLeads   = Person::where('contact_type', 'LEAD')->count();
         $totalClients = Person::where('contact_type', 'CLIENT')->count();
@@ -23,7 +26,23 @@ class StatsOverviewWidget extends BaseWidget
             ->where('created_at', '>=', today())
             ->count();
 
-        // ── Category-aware financials (excludes internal transfers & challenge activity) ──
+        $stats = [
+            Stat::make('Total Contacts', number_format($totalPeople))
+                ->description("{$totalClients} clients · {$totalLeads} leads")
+                ->icon('heroicon-o-users')
+                ->color('primary'),
+
+            Stat::make('New Leads Today', number_format($newLeadsToday))
+                ->description('First seen in CRM today')
+                ->icon('heroicon-o-user-plus')
+                ->color('warning'),
+        ];
+
+        if (! $canViewFinancials) {
+            return $stats;
+        }
+
+        // ── Financial stats — gated on can_view_branch_financials ────────────
         $extDepAllTime   = Transaction::where('category', 'EXTERNAL_DEPOSIT')->sum('amount_cents');
         $extDepMonth     = Transaction::where('category', 'EXTERNAL_DEPOSIT')
             ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
@@ -42,17 +61,7 @@ class StatsOverviewWidget extends BaseWidget
         $newExtDepToday  = Transaction::where('category', 'EXTERNAL_DEPOSIT')
             ->where('occurred_at', '>=', today())->count();
 
-        return [
-            Stat::make('Total Contacts', number_format($totalPeople))
-                ->description("{$totalClients} clients · {$totalLeads} leads")
-                ->icon('heroicon-o-users')
-                ->color('primary'),
-
-            Stat::make('New Leads Today', number_format($newLeadsToday))
-                ->description('First seen in CRM today')
-                ->icon('heroicon-o-user-plus')
-                ->color('warning'),
-
+        return array_merge($stats, [
             Stat::make('New Deposits Today', number_format($newExtDepToday))
                 ->description('External deposits with occurred_at = today')
                 ->icon('heroicon-o-arrow-trending-up')
@@ -82,6 +91,6 @@ class StatsOverviewWidget extends BaseWidget
                 ->description('Wallet movements — not real cashflow')
                 ->icon('heroicon-o-arrows-right-left')
                 ->color('gray'),
-        ];
+        ]);
     }
 }

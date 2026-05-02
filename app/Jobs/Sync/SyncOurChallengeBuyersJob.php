@@ -8,6 +8,7 @@ use App\Models\Activity;
 use App\Models\Offer;
 use App\Models\Person;
 use App\Models\TradingAccount;
+use App\Models\User;
 use App\Services\MatchTrader\Client;
 use App\Services\Normalizer\EmailNormalizer;
 use App\Services\Normalizer\PhoneNormalizer;
@@ -68,19 +69,11 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
             }
         }
 
-        // ── Step 2: Build email → raw CRM data map ──────────────────────────
-        // Streams ALL /v1/accounts without branch filtering so we can enrich
-        // cross-branch and ghost people with their full CRM profile.
-        $crmMap = []; // lowercased email => raw account array
-        foreach ($mtr->allAccounts() as $raw) {
-            $email = strtolower(trim($raw['email'] ?? ''));
-            if ($email) {
-                $crmMap[$email] = $raw;
-            }
-        }
-        Log::info('SyncOurChallengeBuyersJob: CRM map built', ['accounts' => count($crmMap)]);
-
-        // ── Step 3: Process /v1/prop/accounts ───────────────────────────────
+        // ── Step 2: Process /v1/prop/accounts ───────────────────────────────
+        // CRM enrichment is resolved lazily per-record:
+        //   • If the person already exists in our DB → no MTR lookup needed (data already imported).
+        //   • If the person is missing (ghost/cross-branch record) → call /v1/accounts/by-email/{email}.
+        // This avoids loading all 29k+ accounts into a PHP array (memory bomb).
         $stats = [
             'total'      => 0,
             'skipped'    => 0,
@@ -121,8 +114,16 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
                 }
                 $email = EmailNormalizer::normalize($rawEmail);
 
-                // Lead source filter — applied when CRM record is available
-                $crmRaw     = $crmMap[$email] ?? null;
+                // Lazy CRM enrichment: use existing DB record if present;
+                // otherwise fetch from MTR only for true ghost/cross-branch records.
+                $existingPerson = Person::where('email', $email)->first();
+                $crmRaw         = null;
+                if ($existingPerson === null) {
+                    $crmRaw = $mtr->accountByEmail($email);
+                }
+
+                // Lead source filter — applied only when a fresh CRM record is fetched
+                // (existing people already passed this filter during the accounts sync).
                 $leadSource = $crmRaw ? ($crmRaw['leadDetails']['source'] ?? '') : '';
                 if ($leadSource && in_array(strtolower($leadSource), $excludedSources, true)) {
                     $stats['skipped']++;
@@ -142,17 +143,17 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
                         'challengeName' => $challengeName,
                         'accountId'     => $accountId,
                         'offer'         => $offer?->name,
-                        'has_crm'       => $crmRaw !== null,
+                        'has_crm'       => $crmRaw !== null || $existingPerson !== null,
                     ]);
                     $stats['ta_new']++;
                     continue;
                 }
 
                 DB::transaction(function () use (
-                    $email, $propAccount, $crmRaw, $offer, $accountId, &$stats
+                    $email, $propAccount, $existingPerson, $crmRaw, $offer, $accountId, &$stats
                 ): void {
                     // ── Find or create person ──────────────────────────────
-                    $person = Person::where('email', $email)->first();
+                    $person = $existingPerson;
                     $isNew  = $person === null;
 
                     if ($isNew) {
@@ -232,6 +233,15 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
             $phone    = PhoneNormalizer::normalize($crmRaw['contactDetails']['phoneNumber'] ?? '');
             $isClient = ! empty($crmRaw['leadDetails']['becomeActiveClientTime']);
 
+            $accountManagerName = (function ($am) {
+                if (is_array($am)) return $am['name'] ?? null;
+                return $am ?: null;
+            })($crmRaw['accountConfiguration']['accountManager'] ?? null);
+
+            $accountManagerUserId = $accountManagerName
+                ? User::where('name', $accountManagerName)->value('id')
+                : null;
+
             return [
                 'first_name'      => trim($crmRaw['personalDetails']['firstname'] ?? ''),
                 'last_name'       => trim($crmRaw['personalDetails']['lastname'] ?? ''),
@@ -244,13 +254,9 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
                 'lead_source'     => $crmRaw['leadDetails']['source'] ?: null,
                 'affiliate'       => $crmRaw['leadDetails']['referral'] ?? null,
                 'branch'          => $this->resolveBranchName($crmRaw),
-                'account_manager' => (function ($am) {
-                    if (is_array($am)) {
-                        return $am['name'] ?? null;
-                    }
-
-                    return $am ?: null;
-                })($crmRaw['accountConfiguration']['accountManager'] ?? null),
+                'branch_id'       => $this->resolveBranchId($crmRaw),
+                'account_manager' => $accountManagerName,
+                'account_manager_user_id' => $accountManagerUserId,
                 'became_active_client_at' => $isClient
                     ? $this->parseDateTime($crmRaw['leadDetails']['becomeActiveClientTime'])
                     : null,
@@ -275,8 +281,10 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
             'lead_status'        => null,
             'lead_source'        => null,
             'affiliate'          => null,
-            'branch'             => null, // unknown — no CRM record
+            'branch'             => null,       // unknown — no CRM record
+            'branch_id'          => null,       // null = invisible to scoped users until next sync
             'account_manager'    => null,
+            'account_manager_user_id' => null,
             'became_active_client_at' => null,
             'last_online_at'     => null,
             'mtr_last_synced_at' => now(),
@@ -291,18 +299,32 @@ class SyncOurChallengeBuyersJob implements ShouldQueue
      */
     private function resolveBranchName(array $crmRaw): ?string
     {
+        return $this->resolveBranchModel($crmRaw)?->name;
+    }
+
+    /**
+     * Resolves the branch UUID (FK to branches.id) from a raw CRM account record.
+     * Returns null if branch UUID not found in our DB — person will be invisible to
+     * scoped users until the next sync resolves it (null branch_id fail-safe).
+     */
+    private function resolveBranchId(array $crmRaw): ?string
+    {
+        return $this->resolveBranchModel($crmRaw)?->id;
+    }
+
+    private function resolveBranchModel(array $crmRaw): ?\App\Models\Branch
+    {
         $branchUuid = $crmRaw['accountConfiguration']['branchUuid'] ?? null;
         if (! $branchUuid) {
             return null;
         }
 
-        /** @var \App\Models\Branch|null $branch */
         static $branchCache = null;
         if ($branchCache === null) {
             $branchCache = \App\Models\Branch::all()->keyBy('mtr_branch_uuid');
         }
 
-        return $branchCache[$branchUuid]?->name;
+        return $branchCache[$branchUuid] ?? null;
     }
 
     private function detectAndLinkDuplicate(Person $newPerson, array &$stats): void

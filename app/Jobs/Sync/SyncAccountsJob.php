@@ -7,6 +7,7 @@ namespace App\Jobs\Sync;
 use App\Models\Activity;
 use App\Models\Branch;
 use App\Models\Person;
+use App\Models\User;
 use App\Services\MatchTrader\Client;
 use App\Services\Normalizer\EmailNormalizer;
 use App\Services\Normalizer\PhoneNormalizer;
@@ -41,8 +42,11 @@ class SyncAccountsJob implements ShouldQueue
         $includedBranches = array_map('strtolower', (array) config('matchtrader.included_branches'));
         $excludedSources  = array_map('strtolower', (array) config('matchtrader.excluded_lead_sources'));
 
-        // Build branch lookup: mtr_branch_uuid → name (avoids N+1 on every account)
-        $branchLookup = Branch::all()->keyBy('mtr_branch_uuid')->map(fn (Branch $b) => $b->name);
+        // Build branch lookup: mtr_branch_uuid → Branch model (avoids N+1 on every account)
+        $branchLookup = Branch::all()->keyBy('mtr_branch_uuid');
+
+        // Build user name lookup: name → user ID (for account_manager_user_id backfill)
+        $userLookup = User::all()->keyBy('name')->map(fn (User $u) => $u->id);
 
         $stats = [
             'total'      => 0,
@@ -63,8 +67,9 @@ class SyncAccountsJob implements ShouldQueue
                 // SyncOurChallengeBuyersJob (brand-first imports): because we
                 // never reach the upsert path for excluded branches, their records
                 // are left untouched even if the person later appears here.
-                $branchUuid = $raw['accountConfiguration']['branchUuid'] ?? null;
-                $branchName = $branchUuid ? (string) ($branchLookup[$branchUuid] ?? '') : '';
+                $branchUuid   = $raw['accountConfiguration']['branchUuid'] ?? null;
+                $branchModel  = $branchUuid ? ($branchLookup[$branchUuid] ?? null) : null;
+                $branchName   = $branchModel?->name ?? '';
                 if (! in_array(strtolower($branchName), $includedBranches, true)) {
                     $stats['skipped']++;
                     continue;
@@ -90,6 +95,22 @@ class SyncAccountsJob implements ShouldQueue
                 $country  = $raw['addressDetails']['country'] ?? null;
                 $isClient = ! empty($raw['leadDetails']['becomeActiveClientTime']);
 
+                $accountManagerName = (function ($am) {
+                    if (is_array($am)) return $am['name'] ?? null;
+                    return $am ?: null;
+                })($raw['accountConfiguration']['accountManager'] ?? null);
+
+                $accountManagerUserId = $accountManagerName
+                    ? ($userLookup[$accountManagerName] ?? null)
+                    : null;
+
+                if ($accountManagerName && ! $accountManagerUserId) {
+                    Log::debug('SyncAccountsJob: account_manager name has no matching CRM user', [
+                        'email'           => $email,
+                        'account_manager' => $accountManagerName,
+                    ]);
+                }
+
                 $personData = [
                     'first_name'      => trim($raw['personalDetails']['firstname'] ?? ''),
                     'last_name'       => trim($raw['personalDetails']['lastname'] ?? ''),
@@ -101,10 +122,9 @@ class SyncAccountsJob implements ShouldQueue
                     'lead_source'     => $leadSource ?: null,
                     'affiliate'       => $raw['leadDetails']['referral'] ?? null,
                     'branch'          => $branchName,
-                    'account_manager' => (function ($am) {
-                        if (is_array($am)) return $am['name'] ?? null;
-                        return $am ?: null;
-                    })($raw['accountConfiguration']['accountManager'] ?? null),
+                    'branch_id'       => $branchModel?->id,
+                    'account_manager' => $accountManagerName,
+                    'account_manager_user_id' => $accountManagerUserId,
                     'became_active_client_at' => $isClient
                         ? $this->parseDateTime($raw['leadDetails']['becomeActiveClientTime'])
                         : null,

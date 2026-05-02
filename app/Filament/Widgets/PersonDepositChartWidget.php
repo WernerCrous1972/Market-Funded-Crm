@@ -23,6 +23,12 @@ class PersonDepositChartWidget extends ChartWidget
 
     protected static ?string $pollingInterval = null; // no auto-refresh
 
+    public static function canView(): bool
+    {
+        $user = auth()->user();
+        return $user?->is_super_admin || $user?->can_view_client_financials;
+    }
+
     protected int | string | array $columnSpan = 'full';
 
     protected static ?string $maxHeight = '280px';

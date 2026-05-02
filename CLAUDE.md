@@ -73,6 +73,11 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Explicit `WA_FEATURE_ENABLED=false` in production `.env` (currently relies on config default).
 - ~~`deploy.sh` added to git (8bfa975) — `core.fileMode false` fix included.~~ ✅ Done 2026-05-01
 - Permission drift — `core.fileMode false` in place. If drift returns, investigate root cause before adding `chmod` to deploy.sh (blanket chmod risks breaking legitimately-executable files).
+- ~~**Fix deploy.sh for non-root deploys**~~ ✅ Done 2026-05-02 — sudoers exception added (`/etc/sudoers.d/deployer-supervisor`), deploy.sh updated to `sudo -n supervisorctl restart all`. Full end-to-end deploy as `deployer` verified.
+- Investigate adding `php artisan test` pre-deploy gate to deploy.sh — abort on any failure. Today's production deploy did not run tests first.
+- Investigate one-off transient supervisorctl Python/xmlrpc error on first post-fix deploy — if it recurs, investigate lock conflict with view:cache step. Non-blocking.
+- Document MTR back-dating behaviour in BRAIN.md §13 — gateways report deposits 3-6 days late; measure sync health by `synced_at` count, not `occurred_at` of latest record. ✅ Done 2026-05-02
+- Delete `deploy.sh.local-backup` from production server once new deploy.sh is verified across multiple deploys (~1 week).
 - Sales team onboarding — roles, permissions, first-login flow design.
 - Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
 - Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
@@ -126,7 +131,15 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 
 ## Current Phase
 
-**Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed. Awaiting external dependencies before Phase 4.
+**Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed.
+**Phase B (permission system) + Phase C (permission enforcement)** ✅ Built locally. Not yet deployed — will ship together as v1.2.0 (after v1.1.0 first WhatsApp send).
+
+**Phase C test count: 194 tests passing.**
+
+Before deploying Phase B + C:
+1. Run `php artisan migrate` — will execute migrations 000001 (Phase B) and 000002 (Phase C), outputting backfill counts
+2. Verify migration data-step output counts look correct before anything else
+3. Fix `deploy.sh` supervisorctl sudo issue (see Open Follow-ups)
 
 ---
 

@@ -9,7 +9,9 @@ use App\Filament\Resources\PersonResource\Pages;
 use App\Helpers\CountryHelper;
 use App\Models\Person;
 use App\Models\PersonMetric;
+use App\Models\User;
 use App\Models\WhatsAppTemplate;
+use App\Services\Health\HealthScorer;
 use App\Services\WhatsApp\MessageSender;
 use App\Services\WhatsApp\ServiceWindowTracker;
 use Filament\Forms;
@@ -20,8 +22,8 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use App\Services\Health\HealthScorer;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class PersonResource extends Resource
 {
@@ -85,13 +87,15 @@ class PersonResource extends Resource
                     ->label('Total Deposits')
                     ->formatStateUsing(fn (?int $state) => $state !== null ? '$' . number_format($state / 100, 2) : '—')
                     ->sortable()
-                    ->alignEnd(),
+                    ->alignEnd()
+                    ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_view_client_financials),
 
                 Tables\Columns\TextColumn::make('metrics.net_deposits_cents')
                     ->label('Net Deposits')
                     ->formatStateUsing(fn (?int $state) => $state !== null ? '$' . number_format($state / 100, 2) : '—')
                     ->sortable()
-                    ->alignEnd(),
+                    ->alignEnd()
+                    ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_view_client_financials),
 
                 Tables\Columns\TextColumn::make('metrics.health_score')
                     ->label('Health')
@@ -106,13 +110,15 @@ class PersonResource extends Resource
                     })
                     ->sortable()
                     ->alignEnd()
-                    ->toggleable(),
+                    ->toggleable()
+                    ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_view_health_scores),
 
                 Tables\Columns\TextColumn::make('metrics.last_deposit_at')
                     ->label('Last Deposit')
                     ->since()
                     ->sortable()
-                    ->toggleable(),
+                    ->toggleable()
+                    ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_view_client_financials),
 
                 Tables\Columns\TextColumn::make('became_active_client_at')
                     ->label('Client Since')
@@ -214,6 +220,30 @@ class PersonResource extends Resource
                     ),
             ])
             ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
+            ->emptyStateHeading(function () {
+                $user = auth()->user();
+                if ($user && ! $user->is_super_admin && ! $user->assigned_only) {
+                    $hasBranches = DB::table('user_branch_access')
+                        ->where('user_id', $user->id)
+                        ->exists();
+                    if (! $hasBranches) {
+                        return 'No branch access configured';
+                    }
+                }
+                return 'No contacts found';
+            })
+            ->emptyStateDescription(function () {
+                $user = auth()->user();
+                if ($user && ! $user->is_super_admin && ! $user->assigned_only) {
+                    $hasBranches = DB::table('user_branch_access')
+                        ->where('user_id', $user->id)
+                        ->exists();
+                    if (! $hasBranches) {
+                        return 'You are not assigned to any branches. Contact your administrator.';
+                    }
+                }
+                return 'No contacts match the current filters.';
+            })
             ->actions([
                 Tables\Actions\ViewAction::make(),
             ])
@@ -312,6 +342,7 @@ class PersonResource extends Resource
 
                 // Key stats row
                 Infolists\Components\Section::make('Financial Summary')
+                    ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_view_client_financials)
                     ->schema([
                         Infolists\Components\Grid::make(6)
                             ->schema([
@@ -368,6 +399,7 @@ class PersonResource extends Resource
 
                 // Health score
                 Infolists\Components\Section::make('Health Score')
+                    ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_view_health_scores)
                     ->schema([
                         Infolists\Components\Grid::make(5)
                             ->schema([
@@ -717,5 +749,38 @@ class PersonResource extends Resource
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    // ── Query scoping (Phase C) ───────────────────────────────────────────────
+
+    /**
+     * Scopes the people list to records the authenticated user can see.
+     *
+     * Rules:
+     *  - Super admin → no restriction (Gate::before already handles Gate checks,
+     *    but the query itself still needs to be unrestricted).
+     *  - assigned_only = true → only people where account_manager_user_id = user.id
+     *  - assigned_only = false → only people in user's accessible branches (via pivot)
+     *  - branch_id IS NULL → invisible to all non-super-admins (fail-safe)
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if (! $user || $user->is_super_admin) {
+            return $query;
+        }
+
+        if ($user->assigned_only) {
+            return $query->where('account_manager_user_id', $user->id);
+        }
+
+        $branchIds = DB::table('user_branch_access')
+            ->where('user_id', $user->id)
+            ->pluck('branch_id')
+            ->toArray();
+
+        return $query->whereIn('branch_id', $branchIds);
     }
 }

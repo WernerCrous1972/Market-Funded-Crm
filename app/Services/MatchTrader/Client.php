@@ -173,6 +173,25 @@ class Client
         yield from $this->paginate('/v1/prop/accounts', $pageSize);
     }
 
+    /**
+     * Fetch a single CRM account by email address.
+     * Returns null on 404 (account not found in MTR).
+     * Confirmed working: /v1/accounts/by-email/{email} returns 200 with full account shape.
+     */
+    public function accountByEmail(string $email): ?array
+    {
+        try {
+            $result = $this->get('/v1/accounts/by-email/' . rawurlencode($email));
+
+            return empty($result) ? null : $result;
+        } catch (RequestException $e) {
+            if ($e->getResponse()?->getStatusCode() === 404) {
+                return null;
+            }
+            throw $e;
+        }
+    }
+
     // ── Pagination ───────────────────────────────────────────────────────────
 
     /**

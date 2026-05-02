@@ -25,6 +25,12 @@ class AtRiskClientsWidget extends BaseWidget
 
     protected static ?string $pollingInterval = null;
 
+    public static function canView(): bool
+    {
+        $user = auth()->user();
+        return $user?->is_super_admin || $user?->can_view_health_scores;
+    }
+
     public function table(Table $table): Table
     {
         return $table

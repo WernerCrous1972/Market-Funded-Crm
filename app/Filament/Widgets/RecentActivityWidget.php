@@ -8,6 +8,8 @@ use App\Models\Activity;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class RecentActivityWidget extends BaseWidget
 {
@@ -18,11 +20,7 @@ class RecentActivityWidget extends BaseWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(
-                Activity::with('person')
-                    ->orderByDesc('occurred_at')
-                    ->limit(20)
-            )
+            ->query($this->buildQuery())
             ->columns([
                 Tables\Columns\TextColumn::make('occurred_at')
                     ->label('When')
@@ -49,5 +47,38 @@ class RecentActivityWidget extends BaseWidget
                     ->limit(80),
             ])
             ->paginated(false);
+    }
+
+    private function buildQuery(): Builder
+    {
+        $query = Activity::with('person')
+            ->orderByDesc('occurred_at')
+            ->limit(20);
+
+        $user = auth()->user();
+
+        if (! $user || $user->is_super_admin) {
+            return $query;
+        }
+
+        if ($user->assigned_only) {
+            // Assigned-only: show activities for their own clients only
+            return $query->whereHas('person', fn (Builder $q) => $q
+                ->where('account_manager_user_id', $user->id)
+            );
+        }
+
+        $branchIds = DB::table('user_branch_access')
+            ->where('user_id', $user->id)
+            ->pluck('branch_id')
+            ->toArray();
+
+        if (empty($branchIds)) {
+            return $query->whereRaw('1 = 0'); // no branch access = no activity
+        }
+
+        return $query->whereHas('person', fn (Builder $q) => $q
+            ->whereIn('branch_id', $branchIds)
+        );
     }
 }
