@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Widgets;
 
 use App\Models\Activity;
+use App\Models\Person;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
@@ -63,8 +64,8 @@ class RecentActivityWidget extends BaseWidget
 
         if ($user->assigned_only) {
             // Assigned-only: show activities for their own clients only
-            return $query->whereHas('person', fn (Builder $q) => $q
-                ->where('account_manager_user_id', $user->id)
+            return $query->whereIn('person_id',
+                Person::where('account_manager_user_id', $user->id)->select('id')
             );
         }
 
@@ -77,8 +78,8 @@ class RecentActivityWidget extends BaseWidget
             return $query->whereRaw('1 = 0'); // no branch access = no activity
         }
 
-        return $query->whereHas('person', fn (Builder $q) => $q
-            ->whereIn('branch_id', $branchIds)
+        return $query->whereIn('person_id',
+            Person::whereIn('branch_id', $branchIds)->select('id')
         );
     }
 }

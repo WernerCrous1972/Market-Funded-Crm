@@ -66,7 +66,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 
 > **Maintenance note:** Add items as they're identified. Remove or strike through when complete.
 
-- **Phase C browser smoke test (A–J)** — run on local before any production work. Setup + matrix in "Next Session — First Task" above.
+- ~~**Phase C browser smoke test (A–J)**~~ — All 10 checks passed 2026-05-03. Two bugs fixed (bc55f85, 46e1116) and deployed.
 - **Cloudflare MTR whitelist** — production droplet `144.126.225.3` still blocked (`cf-mitigated: challenge`). External blocker. Re-test with `curl -sI` diagnostic when MTR confirms action taken.
 - **Migration bootstrap email — must not hardcode** — `2026_05_02_000001` hardcodes `werner@market-funded.com`; silently skipped on production. Next migration that bootstraps a user must use `config('app.super_admin_email')` or equivalent. Add a post-migration assertion that verifies the row was actually updated.
 - **Production first-sync plan** — when Cloudflare resolves: (1) run `mtr:sync --full` with `memory_limit=1G`, expect ~29k people + ~5.8k transactions, ETA ~8–12 min; (2) watch Horizon dashboard for failures; (3) verify `php artisan tinker` people/transaction counts match prior local sync; (4) trigger `metrics:refresh` after sync completes.
@@ -82,6 +82,8 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Delete `deploy.sh.local-backup` from production server once new deploy.sh verified across multiple deploys.
 - Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
 - Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
+- **BUG: `days_since_last_login` is 0 for all rows in `person_metrics`** — "Dormant (10d+ no login)" filter returns zero results. Suspected causes: (1) `RefreshPersonMetricsJob` may not calculate `days_since_last_login` from `last_online_at`, (2) `last_online_at` may not be synced from MTR's `lastOnlineTime` field, or (3) both. Investigate `RefreshPersonMetricsJob` and `SyncAccountsJob` before enabling the Dormant filter. Do not surface this filter to agents until fixed.
+- **v1.2.1 full smoke test (Grace + Derick)** — before deploying to production, run the full Phase C surface: every page, every filter, every widget, as both agents. Goal: catch anything lurking before real agents use it.
 
 ---
 

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Filament\Widgets;
 
 use App\Models\Person;
+use App\Models\PersonMetric;
 use App\Services\Health\HealthScorer;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Dashboard widget: At-Risk Clients (health score < 40, grade D or F).
@@ -34,22 +36,7 @@ class AtRiskClientsWidget extends BaseWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(
-                Person::query()
-                    ->where('contact_type', 'CLIENT')
-                    ->whereHas('metrics', fn (Builder $q) => $q
-                        ->whereNotNull('health_score')
-                        ->where('health_score', '<', 40)
-                    )
-                    ->with('metrics')
-                    ->orderBy(
-                        \App\Models\PersonMetric::select('health_score')
-                            ->whereColumn('person_id', 'people.id')
-                            ->limit(1),
-                        'asc'
-                    )
-                    ->limit(10)
-            )
+            ->query($this->buildQuery())
             ->columns([
                 Tables\Columns\TextColumn::make('full_name')
                     ->label('Client')
@@ -108,5 +95,44 @@ class AtRiskClientsWidget extends BaseWidget
             ])
             ->paginated(false)
             ->striped();
+    }
+
+    private function buildQuery(): Builder
+    {
+        $query = Person::query()
+            ->where('contact_type', 'CLIENT')
+            ->whereIn('id', PersonMetric::whereNotNull('health_score')
+                ->where('health_score', '<', 40)
+                ->select('person_id'))
+            ->with('metrics')
+            ->orderBy(
+                PersonMetric::select('health_score')
+                    ->whereColumn('person_id', 'people.id')
+                    ->limit(1),
+                'asc'
+            )
+            ->limit(10);
+
+        $user = auth()->user();
+
+        if (! $user || $user->is_super_admin) {
+            return $query;
+        }
+
+        $branchIds = DB::table('user_branch_access')
+            ->where('user_id', $user->id)
+            ->pluck('branch_id')
+            ->toArray();
+
+        if ($user->assigned_only) {
+            if (empty($branchIds)) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->where('account_manager_user_id', $user->id)
+                         ->whereIn('branch_id', $branchIds);
+        }
+
+        return $query->whereIn('branch_id', $branchIds);
     }
 }

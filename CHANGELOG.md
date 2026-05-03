@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] — 2026-05-03
+
+### Fixed
+
+- **People filters silently no-op (root cause):** All filter callbacks used `$q` as the
+  parameter name. Filament's `evaluate()` resolves closure parameters by name; the Builder
+  is injected under the key `'query'`. Name mismatch caused fallback to
+  `app()->make(Builder::class)` — a blank disconnected Builder that absorbed filter
+  constraints without error. Renamed `$q` → `$query` throughout. (`1a499e0`, `5ce1c10`)
+
+- **People list filter pipeline bypassed:** `ListPeople::getTableQuery()` override is a
+  Filament v2 pattern that bypasses the Filament v3 filter application pipeline. Moved
+  `->with('metrics')` eager-load to `->modifyQueryUsing()` on the table definition.
+  (`0185921`)
+
+- **`whereHas` failures in Filament filter context:** Laravel 11.51 + Filament v3 evaluates
+  filter query callbacks via `evaluate()`, which can inject a blank Builder when the parameter
+  name doesn't match. Calling `whereHas` on that blank Builder (no model set) threw "Call to
+  a member function X() on null". Replaced all `whereHas` calls in filter callbacks with
+  `whereIn` subqueries. (`65aea91`, `848b15e`)
+
+- **Trading accounts and transactions not scoped to assigned clients:** Phase C
+  `getEloquentQuery()` scoping was missing from `TradingAccountResource` and
+  `TransactionResource`. Agents could see all records in list views. Added `person_id`
+  subquery scoping to both. (`62b69f4`)
+
+- **AtRiskClientsWidget not scoped to assigned clients:** Widget query had no branch or
+  assigned_only scoping — a non-admin user with `can_view_health_scores` would see all
+  at-risk clients across all branches. Added same scoping pattern as PersonResource.
+  `whereHas` replaced with `whereIn` subquery for consistency.
+
+- **RecentActivityWidget:** `whereHas` calls replaced with `whereIn` subqueries for
+  consistency with project-wide pattern (functional behaviour unchanged — scoping logic
+  was already correct).
+
+### Notes
+
+All 195 automated tests passed throughout. These bugs were not caught by the test suite
+because the tests use super-admin users and assert HTTP 200 responses — they do not exercise
+filter query application or agent-scoped widget rendering. The v1.2.0 Phase C smoke test
+matrix (A–J) covered permission visibility and branch scoping on the People list, but did
+not include filter interaction or dashboard widget rendering under an agent login. Future
+smoke tests for permission releases should include: ticking each filter and verifying the
+count changes, and loading the dashboard as an assigned-only agent.
+
+### Not deployed
+
+v1.2.1 is pushed to main but not yet deployed to production. No agents are active on
+production; deploy when ready after full smoke test (Grace + Derick, all surfaces).
+
+---
+
 ## [1.2.0] — 2026-05-03
 
 ### Deployed to production — 2026-05-03
@@ -17,7 +69,7 @@ Commit `747a4df` deployed via `deploy.sh` as `deployer` user. Both migrations ra
 
 **Production database:** Empty pending Cloudflare MTR API whitelist. No people, transactions, or sync data on production yet. Phase B + C are live and correct but untestable against real data until the whitelist resolves.
 
-**Phase C browser smoke test:** 10-check A–J matrix not yet run. Scheduled for next session using local data.
+**Phase C browser smoke test:** All 10 checks (A-J) passed — 2026-05-03. Two bugs found and fixed during smoke test (see commits `bc55f85`, `46e1116`). Both fixes deployed to production same session.
 
 ---
 
