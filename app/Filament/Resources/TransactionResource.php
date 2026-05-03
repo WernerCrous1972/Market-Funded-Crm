@@ -213,10 +213,10 @@ class TransactionResource extends Resource
                 SelectFilter::make('branch')
                     ->label('Branch')
                     ->options(fn () => Person::distinct()->pluck('branch', 'branch')->filter()->sort()->toArray())
-                    ->query(fn (Builder $q, array $data) =>
+                    ->query(fn (Builder $query, array $data) =>
                         $data['value']
-                            ? $q->whereIn('person_id', Person::where('branch', $data['value'])->select('id'))
-                            : $q
+                            ? $query->whereIn('person_id', Person::where('branch', $data['value'])->select('id'))
+                            : $query
                     )
                     ->searchable(),
 
