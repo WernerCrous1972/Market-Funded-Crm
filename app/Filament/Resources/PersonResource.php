@@ -151,15 +151,15 @@ class PersonResource extends Resource
                 // Pipeline filter via metrics flags (fast — no join needed)
                 Tables\Filters\Filter::make('has_markets')
                     ->label('MFU Markets')
-                    ->query(fn (Builder $q) => $q->whereHas('metrics', fn ($m) => $m->where('has_markets', true))),
+                    ->query(fn (Builder $q) => $q->whereIn('id', PersonMetric::where('has_markets', true)->select('person_id'))),
 
                 Tables\Filters\Filter::make('has_capital')
                     ->label('MFU Capital')
-                    ->query(fn (Builder $q) => $q->whereHas('metrics', fn ($m) => $m->where('has_capital', true))),
+                    ->query(fn (Builder $q) => $q->whereIn('id', PersonMetric::where('has_capital', true)->select('person_id'))),
 
                 Tables\Filters\Filter::make('has_academy')
                     ->label('MFU Academy')
-                    ->query(fn (Builder $q) => $q->whereHas('metrics', fn ($m) => $m->where('has_academy', true))),
+                    ->query(fn (Builder $q) => $q->whereIn('id', PersonMetric::where('has_academy', true)->select('person_id'))),
 
                 // ── Operational saved filters ──────────────────────────────
 
@@ -167,10 +167,9 @@ class PersonResource extends Resource
                     ->label('📉 Dropped volume (30d)')
                     ->query(fn (Builder $q) => $q
                         ->where('contact_type', 'CLIENT')
-                        ->whereHas('metrics', fn ($m) => $m
-                            ->where('days_since_last_deposit', '>', 30)
+                        ->whereIn('id', PersonMetric::where('days_since_last_deposit', '>', 30)
                             ->where('total_deposits_cents', '>', 0)
-                        )
+                            ->select('person_id'))
                     ),
 
                 Tables\Filters\Filter::make('unconverted_leads')
@@ -178,17 +177,16 @@ class PersonResource extends Resource
                     ->query(fn (Builder $q) => $q
                         ->where('contact_type', 'LEAD')
                         ->where('mtr_created_at', '<', now()->subDays(7))
-                        ->whereHas('metrics', fn ($m) => $m->where('deposit_count', 0))
+                        ->whereIn('id', PersonMetric::where('deposit_count', 0)->select('person_id'))
                     ),
 
                 Tables\Filters\Filter::make('dormant_with_equity')
                     ->label('💤 Dormant (10d+ no login)')
                     ->query(fn (Builder $q) => $q
                         ->where('contact_type', 'CLIENT')
-                        ->whereHas('metrics', fn ($m) => $m
-                            ->where('days_since_last_login', '>', 10)
+                        ->whereIn('id', PersonMetric::where('days_since_last_login', '>', 10)
                             ->where('net_deposits_cents', '>', 500_000) // > $5,000
-                        )
+                            ->select('person_id'))
                     ),
 
                 Tables\Filters\Filter::make('new_this_month')
@@ -203,20 +201,18 @@ class PersonResource extends Resource
                     ->label('🚨 At Risk (score < 40)')
                     ->query(fn (Builder $q) => $q
                         ->where('contact_type', 'CLIENT')
-                        ->whereHas('metrics', fn ($m) => $m
-                            ->whereNotNull('health_score')
+                        ->whereIn('id', PersonMetric::whereNotNull('health_score')
                             ->where('health_score', '<', 40)
-                        )
+                            ->select('person_id'))
                     ),
 
                 Tables\Filters\Filter::make('critical')
                     ->label('💀 Critical (score < 20)')
                     ->query(fn (Builder $q) => $q
                         ->where('contact_type', 'CLIENT')
-                        ->whereHas('metrics', fn ($m) => $m
-                            ->whereNotNull('health_score')
+                        ->whereIn('id', PersonMetric::whereNotNull('health_score')
                             ->where('health_score', '<', 20)
-                        )
+                            ->select('person_id'))
                     ),
             ])
             ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
