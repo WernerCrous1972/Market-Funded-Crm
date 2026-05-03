@@ -214,7 +214,7 @@ class TransactionResource extends Resource
                     ->options(fn () => Person::distinct()->pluck('branch', 'branch')->filter()->sort()->toArray())
                     ->query(fn (Builder $q, array $data) =>
                         $data['value']
-                            ? $q->whereHas('person', fn (Builder $p) => $p->where('branch', $data['value']))
+                            ? $q->whereIn('person_id', Person::where('branch', $data['value'])->select('id'))
                             : $q
                     )
                     ->searchable(),
