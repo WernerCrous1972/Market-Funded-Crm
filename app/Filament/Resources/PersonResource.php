@@ -222,7 +222,7 @@ class PersonResource extends Resource
             ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
             ->emptyStateHeading(function () {
                 $user = auth()->user();
-                if ($user && ! $user->is_super_admin && ! $user->assigned_only) {
+                if ($user && ! $user->is_super_admin) {
                     $hasBranches = DB::table('user_branch_access')
                         ->where('user_id', $user->id)
                         ->exists();
@@ -234,7 +234,7 @@ class PersonResource extends Resource
             })
             ->emptyStateDescription(function () {
                 $user = auth()->user();
-                if ($user && ! $user->is_super_admin && ! $user->assigned_only) {
+                if ($user && ! $user->is_super_admin) {
                     $hasBranches = DB::table('user_branch_access')
                         ->where('user_id', $user->id)
                         ->exists();
@@ -772,14 +772,19 @@ class PersonResource extends Resource
             return $query;
         }
 
-        if ($user->assigned_only) {
-            return $query->where('account_manager_user_id', $user->id);
-        }
-
         $branchIds = DB::table('user_branch_access')
             ->where('user_id', $user->id)
             ->pluck('branch_id')
             ->toArray();
+
+        if ($user->assigned_only) {
+            if (empty($branchIds)) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->where('account_manager_user_id', $user->id)
+                         ->whereIn('branch_id', $branchIds);
+        }
 
         return $query->whereIn('branch_id', $branchIds);
     }

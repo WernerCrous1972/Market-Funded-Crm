@@ -178,8 +178,7 @@ class UserResource extends Resource
                     Forms\Components\CheckboxList::make('branch_ids')
                         ->label('Accessible branches')
                         ->options(fn () => Branch::where('is_included', true)->orderBy('name')->pluck('name', 'id'))
-                        ->columns(2)
-                        ->dehydrated(false),
+                        ->columns(2),
                 ]),
         ]);
     }

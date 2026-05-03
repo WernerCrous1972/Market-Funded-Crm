@@ -88,9 +88,16 @@ describe('Phase C — permission enforcement', function () {
 
     // ── getEloquentQuery — assigned_only ──────────────────────────────────────
 
-    it('assigned_only user only sees their own contacts', function () {
+    it('assigned_only user only sees their own contacts within accessible branches', function () {
         $user   = User::factory()->create(['is_super_admin' => false, 'assigned_only' => true]);
         $branch = Branch::factory()->create(['is_included' => true]);
+
+        DB::table('user_branch_access')->insert([
+            'user_id'    => $user->id,
+            'branch_id'  => $branch->id,
+            'granted_at' => now(),
+            'granted_by' => $user->id,
+        ]);
 
         Person::factory()->create(['branch_id' => $branch->id, 'account_manager_user_id' => $user->id]);
         Person::factory()->create(['branch_id' => $branch->id, 'account_manager_user_id' => null]);
@@ -98,6 +105,17 @@ describe('Phase C — permission enforcement', function () {
         $this->actingAs($user);
 
         expect(PersonResource::getEloquentQuery()->count())->toBe(1);
+    });
+
+    it('assigned_only user with no branch access sees nothing', function () {
+        $user   = User::factory()->create(['is_super_admin' => false, 'assigned_only' => true]);
+        $branch = Branch::factory()->create(['is_included' => true]);
+
+        Person::factory()->create(['branch_id' => $branch->id, 'account_manager_user_id' => $user->id]);
+
+        $this->actingAs($user);
+
+        expect(PersonResource::getEloquentQuery()->count())->toBe(0);
     });
 
     // ── PersonPolicy ──────────────────────────────────────────────────────────
