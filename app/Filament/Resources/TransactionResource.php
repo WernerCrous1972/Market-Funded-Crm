@@ -222,12 +222,12 @@ class TransactionResource extends Resource
 
                 Filter::make('this_month')
                     ->label('This month')
-                    ->query(fn (Builder $q) => $q->where('occurred_at', '>=', now()->startOfMonth())),
+                    ->query(fn (Builder $query) => $query->where('occurred_at', '>=', now()->startOfMonth())),
 
                 Filter::make('large_deposits')
                     ->label('Large deposits ($5k+)')
-                    ->query(fn (Builder $q) =>
-                        $q->where('type', 'DEPOSIT')->where('amount_cents', '>=', 500000)
+                    ->query(fn (Builder $query) =>
+                        $query->where('type', 'DEPOSIT')->where('amount_cents', '>=', 500000)
                     ),
             ])
             ->actions([

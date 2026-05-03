@@ -152,21 +152,21 @@ class PersonResource extends Resource
                 // Pipeline filter via metrics flags (fast — no join needed)
                 Tables\Filters\Filter::make('has_markets')
                     ->label('MFU Markets')
-                    ->query(fn (Builder $query) => $q->whereIn('id', PersonMetric::where('has_markets', true)->select('person_id'))),
+                    ->query(fn (Builder $query) => $query->whereIn('id', PersonMetric::where('has_markets', true)->select('person_id'))),
 
                 Tables\Filters\Filter::make('has_capital')
                     ->label('MFU Capital')
-                    ->query(fn (Builder $query) => $q->whereIn('id', PersonMetric::where('has_capital', true)->select('person_id'))),
+                    ->query(fn (Builder $query) => $query->whereIn('id', PersonMetric::where('has_capital', true)->select('person_id'))),
 
                 Tables\Filters\Filter::make('has_academy')
                     ->label('MFU Academy')
-                    ->query(fn (Builder $query) => $q->whereIn('id', PersonMetric::where('has_academy', true)->select('person_id'))),
+                    ->query(fn (Builder $query) => $query->whereIn('id', PersonMetric::where('has_academy', true)->select('person_id'))),
 
                 // ── Operational saved filters ──────────────────────────────
 
                 Tables\Filters\Filter::make('inactive_traders')
                     ->label('📉 Dropped volume (30d)')
-                    ->query(fn (Builder $query) => $q
+                    ->query(fn (Builder $query) => $query
                         ->where('contact_type', 'CLIENT')
                         ->whereIn('id', PersonMetric::where('days_since_last_deposit', '>', 30)
                             ->where('total_deposits_cents', '>', 0)
@@ -175,7 +175,7 @@ class PersonResource extends Resource
 
                 Tables\Filters\Filter::make('unconverted_leads')
                     ->label('⏳ Unconverted 7d+')
-                    ->query(fn (Builder $query) => $q
+                    ->query(fn (Builder $query) => $query
                         ->where('contact_type', 'LEAD')
                         ->where('mtr_created_at', '<', now()->subDays(7))
                         ->whereIn('id', PersonMetric::where('deposit_count', 0)->select('person_id'))
@@ -183,7 +183,7 @@ class PersonResource extends Resource
 
                 Tables\Filters\Filter::make('dormant_with_equity')
                     ->label('💤 Dormant (10d+ no login)')
-                    ->query(fn (Builder $query) => $q
+                    ->query(fn (Builder $query) => $query
                         ->where('contact_type', 'CLIENT')
                         ->whereIn('id', PersonMetric::where('days_since_last_login', '>', 10)
                             ->where('net_deposits_cents', '>', 500_000) // > $5,000
@@ -192,15 +192,15 @@ class PersonResource extends Resource
 
                 Tables\Filters\Filter::make('new_this_month')
                     ->label('🆕 New this month')
-                    ->query(fn (Builder $query) => $q->where('mtr_created_at', '>=', now()->startOfMonth())),
+                    ->query(fn (Builder $query) => $query->where('mtr_created_at', '>=', now()->startOfMonth())),
 
                 Tables\Filters\Filter::make('not_contacted')
                     ->label('📵 Not contacted')
-                    ->query(fn (Builder $query) => $q->where('notes_contacted', false)),
+                    ->query(fn (Builder $query) => $query->where('notes_contacted', false)),
 
                 Tables\Filters\Filter::make('at_risk')
                     ->label('🚨 At Risk (score < 40)')
-                    ->query(fn (Builder $query) => $q
+                    ->query(fn (Builder $query) => $query
                         ->where('contact_type', 'CLIENT')
                         ->whereIn('id', PersonMetric::whereNotNull('health_score')
                             ->where('health_score', '<', 40)
@@ -209,7 +209,7 @@ class PersonResource extends Resource
 
                 Tables\Filters\Filter::make('critical')
                     ->label('💀 Critical (score < 20)')
-                    ->query(fn (Builder $query) => $q
+                    ->query(fn (Builder $query) => $query
                         ->where('contact_type', 'CLIENT')
                         ->whereIn('id', PersonMetric::whereNotNull('health_score')
                             ->where('health_score', '<', 20)
