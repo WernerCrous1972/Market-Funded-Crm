@@ -62,8 +62,8 @@ class ViewPerson extends ViewRecord
 
             // ── Edit Contact ─────────────────────────────────────────────────
             // Visible if user has can_edit_clients OR can_assign_clients (or super admin).
-            // Full form for can_edit_clients; mini form (lead_status + account_manager
-            // only) for can_assign_clients.
+            // Full form for can_edit_clients (all fields + account_manager reassignment).
+            // Mini form for can_assign_clients (lead_status only — account_manager is admin-only).
             Actions\Action::make('editContact')
                 ->label('Edit Contact')
                 ->icon('heroicon-o-pencil-square')
@@ -123,18 +123,19 @@ class ViewPerson extends ViewRecord
                             ->label('Mark as contacted');
                     }
 
-                    // Always included for can_assign_clients and can_edit_clients
                     $fields[] = Forms\Components\TextInput::make('lead_status')
                         ->label('Lead Status')
                         ->maxLength(50)
                         ->placeholder('e.g. HOT LEAD, WARM, COLD');
 
-                    $fields[] = Forms\Components\Select::make('account_manager_user_id')
-                        ->label('Account Manager')
-                        ->options(fn () => User::orderBy('name')->pluck('name', 'id'))
-                        ->searchable()
-                        ->nullable()
-                        ->placeholder('Unassigned');
+                    if ($canEdit) {
+                        $fields[] = Forms\Components\Select::make('account_manager_user_id')
+                            ->label('Account Manager')
+                            ->options(fn () => User::orderBy('name')->pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->placeholder('Unassigned');
+                    }
 
                     return $fields;
                 })
@@ -147,21 +148,20 @@ class ViewPerson extends ViewRecord
                         'lead_status' => $data['lead_status'] ?? $person->lead_status,
                     ];
 
-                    // Resolve account manager name from the selected user ID
-                    $amUserId = $data['account_manager_user_id'] ?? null;
-                    $amUser   = $amUserId ? User::find($amUserId) : null;
-
-                    $updateData['account_manager_user_id'] = $amUserId;
-                    $updateData['account_manager']         = $amUser?->name;
-
                     if ($canEdit) {
-                        $updateData['first_name']      = $data['first_name'];
-                        $updateData['last_name']       = $data['last_name'];
-                        $updateData['phone_e164']      = $data['phone_e164'] ?: null;
-                        $updateData['country']         = $data['country'] ?: null;
-                        $updateData['lead_source']     = $data['lead_source'] ?: null;
-                        $updateData['affiliate']       = $data['affiliate'] ?: null;
-                        $updateData['notes_contacted'] = $data['notes_contacted'] ?? false;
+                        // Account manager reassignment is admin / can_edit_clients only
+                        $amUserId = $data['account_manager_user_id'] ?? null;
+                        $amUser   = $amUserId ? User::find($amUserId) : null;
+
+                        $updateData['account_manager_user_id'] = $amUserId;
+                        $updateData['account_manager']         = $amUser?->name;
+                        $updateData['first_name']              = $data['first_name'];
+                        $updateData['last_name']               = $data['last_name'];
+                        $updateData['phone_e164']              = $data['phone_e164'] ?: null;
+                        $updateData['country']                 = $data['country'] ?: null;
+                        $updateData['lead_source']             = $data['lead_source'] ?: null;
+                        $updateData['affiliate']               = $data['affiliate'] ?: null;
+                        $updateData['notes_contacted']         = $data['notes_contacted'] ?? false;
                     }
 
                     $person->update($updateData);
