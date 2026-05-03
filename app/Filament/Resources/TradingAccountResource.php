@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\TradingAccountResource\Pages;
 use App\Filament\Resources\TradingAccountResource\RelationManagers\TransactionsRelationManager;
+use App\Models\Person;
 use App\Models\TradingAccount;
 use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\IconEntry;
@@ -16,6 +17,8 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class TradingAccountResource extends Resource
 {
@@ -160,5 +163,36 @@ class TradingAccountResource extends Resource
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if (! $user || $user->is_super_admin) {
+            return $query;
+        }
+
+        $branchIds = DB::table('user_branch_access')
+            ->where('user_id', $user->id)
+            ->pluck('branch_id')
+            ->toArray();
+
+        if ($user->assigned_only) {
+            if (empty($branchIds)) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->whereIn('person_id',
+                Person::where('account_manager_user_id', $user->id)
+                      ->whereIn('branch_id', $branchIds)
+                      ->select('id')
+            );
+        }
+
+        return $query->whereIn('person_id',
+            Person::whereIn('branch_id', $branchIds)->select('id')
+        );
     }
 }
