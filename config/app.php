@@ -15,6 +15,10 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    // Super-admin email used by bootstrap migrations (e.g. Phase B permission seed).
+    // Must match the CRM login email of the initial admin user.
+    'admin_email' => env('ADMIN_EMAIL', 'admin@example.com'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

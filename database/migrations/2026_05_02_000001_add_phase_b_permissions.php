@@ -119,7 +119,7 @@ return new class extends Migration
         });
 
         // ── 5. Bootstrap Werner ───────────────────────────────────────────────
-        $werner = DB::table('users')->where('email', 'werner@market-funded.com')->first();
+        $werner = DB::table('users')->where('email', config('app.admin_email'))->first();
         $now    = now();
 
         if ($werner) {
