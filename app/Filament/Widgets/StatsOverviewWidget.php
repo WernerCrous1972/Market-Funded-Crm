@@ -15,14 +15,27 @@ class StatsOverviewWidget extends BaseWidget
 
     protected function getStats(): array
     {
-        $user               = auth()->user();
-        $canViewFinancials  = $user?->is_super_admin || $user?->can_view_branch_financials;
+        $user              = auth()->user();
+        $canViewFinancials = $user?->is_super_admin || $user?->can_view_branch_financials;
 
-        $totalPeople  = Person::count();
-        $totalLeads   = Person::where('contact_type', 'LEAD')->count();
-        $totalClients = Person::where('contact_type', 'CLIENT')->count();
+        // Personal book scoping: super admins see global totals; everyone else
+        // sees only clients where they are the account manager.
+        $managerId = $user?->is_super_admin ? null : $user?->id;
 
-        $newLeadsToday = Person::where('contact_type', 'LEAD')
+        $peopleQuery = fn () => Person::query()
+            ->when($managerId, fn ($q) => $q->where('account_manager_user_id', $managerId));
+
+        $txQuery = fn () => Transaction::query()
+            ->when($managerId, fn ($q) => $q->whereIn('person_id',
+                Person::where('account_manager_user_id', $managerId)->select('id')
+            ));
+
+        $totalPeople  = $peopleQuery()->count();
+        $totalLeads   = $peopleQuery()->where('contact_type', 'LEAD')->count();
+        $totalClients = $peopleQuery()->where('contact_type', 'CLIENT')->count();
+
+        $newLeadsToday = $peopleQuery()
+            ->where('contact_type', 'LEAD')
             ->where('created_at', '>=', today())
             ->count();
 
@@ -43,22 +56,22 @@ class StatsOverviewWidget extends BaseWidget
         }
 
         // ── Financial stats — gated on can_view_branch_financials ────────────
-        $extDepAllTime   = Transaction::where('category', 'EXTERNAL_DEPOSIT')->sum('amount_cents');
-        $extDepMonth     = Transaction::where('category', 'EXTERNAL_DEPOSIT')
+        $extDepAllTime   = $txQuery()->where('category', 'EXTERNAL_DEPOSIT')->sum('amount_cents');
+        $extDepMonth     = $txQuery()->where('category', 'EXTERNAL_DEPOSIT')
             ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
 
-        $extWdAllTime    = Transaction::where('category', 'EXTERNAL_WITHDRAWAL')->sum('amount_cents');
-        $extWdMonth      = Transaction::where('category', 'EXTERNAL_WITHDRAWAL')
+        $extWdAllTime    = $txQuery()->where('category', 'EXTERNAL_WITHDRAWAL')->sum('amount_cents');
+        $extWdMonth      = $txQuery()->where('category', 'EXTERNAL_WITHDRAWAL')
             ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
 
-        $challengeAllTime = Transaction::where('category', 'CHALLENGE_PURCHASE')->sum('amount_cents');
-        $challengeMonth   = Transaction::where('category', 'CHALLENGE_PURCHASE')
+        $challengeAllTime = $txQuery()->where('category', 'CHALLENGE_PURCHASE')->sum('amount_cents');
+        $challengeMonth   = $txQuery()->where('category', 'CHALLENGE_PURCHASE')
             ->where('occurred_at', '>=', now()->startOfMonth())->sum('amount_cents');
 
-        $internalMonth   = Transaction::where('category', 'INTERNAL_TRANSFER')
+        $internalMonth   = $txQuery()->where('category', 'INTERNAL_TRANSFER')
             ->where('occurred_at', '>=', now()->startOfMonth())->count();
 
-        $newExtDepToday  = Transaction::where('category', 'EXTERNAL_DEPOSIT')
+        $newExtDepToday  = $txQuery()->where('category', 'EXTERNAL_DEPOSIT')
             ->where('occurred_at', '>=', today())->count();
 
         return array_merge($stats, [

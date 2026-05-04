@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] — 2026-05-04
+
+### Fixed
+
+- **Dashboard widgets show global totals to all users:** `StatsOverviewWidget`,
+  `GlobalDepositChartWidget`, and `AtRiskClientsWidget` were querying all data
+  regardless of who was logged in. All three now scope to the authenticated
+  user's personal book (`account_manager_user_id = user.id`). Super admins
+  continue to see global totals. Users with no assigned clients see zeros.
+  `RecentActivityWidget` was already correct (verified with Grace — no change).
+
+- **AtRiskClientsWidget assigned_only bug (v1.2.1 regression):** The v1.2.1 fix
+  incorrectly required both `account_manager_user_id` match AND `branch_id` in
+  user's branch list — meaning an assigned-only agent with no explicit branch
+  grant saw an empty widget. Replaced with a single
+  `where('account_manager_user_id', $user->id)` consistent with the new
+  personal-book scoping rule. Removed now-unused `DB` facade import.
+
+### Verified
+
+- Logged in as Grace (assigned-only agent). People list, activity feed, and
+  dashboard stat tiles all reflect only Grace's assigned clients. Global figures
+  no longer leak to non-admin users.
+
+### Not deployed
+
+Hold for full Grace + Derick smoke test before production deploy.
+
+---
+
 ## [1.2.1] — 2026-05-03
 
 ### Fixed

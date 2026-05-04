@@ -11,7 +11,6 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Dashboard widget: At-Risk Clients (health score < 40, grade D or F).
@@ -119,20 +118,6 @@ class AtRiskClientsWidget extends BaseWidget
             return $query;
         }
 
-        $branchIds = DB::table('user_branch_access')
-            ->where('user_id', $user->id)
-            ->pluck('branch_id')
-            ->toArray();
-
-        if ($user->assigned_only) {
-            if (empty($branchIds)) {
-                return $query->whereRaw('1 = 0');
-            }
-
-            return $query->where('account_manager_user_id', $user->id)
-                         ->whereIn('branch_id', $branchIds);
-        }
-
-        return $query->whereIn('branch_id', $branchIds);
+        return $query->where('account_manager_user_id', $user->id);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Widgets;
 
+use App\Models\Person;
 use App\Models\Transaction;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Support\Carbon;
@@ -32,11 +33,16 @@ class GlobalDepositChartWidget extends ChartWidget
 
     protected function getData(): array
     {
-        $since = now()->subDays(90)->startOfDay();
+        $since     = now()->subDays(90)->startOfDay();
+        $user      = auth()->user();
+        $managerId = $user?->is_super_admin ? null : $user?->id;
 
         $transactions = Transaction::whereIn('category', ['EXTERNAL_DEPOSIT', 'EXTERNAL_WITHDRAWAL'])
             ->where('status', 'DONE')
             ->where('occurred_at', '>=', $since)
+            ->when($managerId, fn ($q) => $q->whereIn('person_id',
+                Person::where('account_manager_user_id', $managerId)->select('id')
+            ))
             ->orderBy('occurred_at')
             ->get(['occurred_at', 'category', 'amount_cents']);
 
