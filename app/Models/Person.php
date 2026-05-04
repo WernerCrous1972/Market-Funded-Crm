@@ -41,6 +41,7 @@ class Person extends Model
         'mtr_last_synced_at',
         'mtr_created_at',
         'mtr_updated_at',
+        'mtr_account_uuid',
         'imported_via_challenge',
     ];
 

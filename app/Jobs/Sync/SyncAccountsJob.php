@@ -132,6 +132,7 @@ class SyncAccountsJob implements ShouldQueue
                     'mtr_last_synced_at' => now(),
                     'mtr_created_at'     => $this->parseDateTime($raw['created'] ?? null),
                     'mtr_updated_at'     => $this->parseDateTime($raw['updated'] ?? null),
+                    'mtr_account_uuid'   => $raw['uuid'] ?? null,
                 ];
 
                 if ($this->dryRun) {

@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Jobs\Sync\SyncAccountsJob;
 use App\Jobs\Sync\SyncBranchesJob;
 use App\Jobs\Sync\SyncDepositsJob;
+use App\Jobs\Sync\SyncLoginTimestampsJob;
 use App\Jobs\Sync\SyncOffersJob;
 use App\Jobs\Sync\SyncOurChallengeBuyersJob;
 use App\Jobs\Sync\SyncWithdrawalsJob;
@@ -24,7 +25,8 @@ class MtrSync extends Command
         {--accounts-only           : Only sync accounts (people + trading accounts)}
         {--deposits-only           : Only sync deposits}
         {--withdrawals-only        : Only sync withdrawals}
-        {--challenge-buyers-only   : Only run the cross-branch challenge buyer import}';
+        {--challenge-buyers-only   : Only run the cross-branch challenge buyer import}
+        {--login-timestamps-only   : Only sync last login timestamps for CLIENT accounts}';
 
     protected $description = 'Sync data from the Match-Trader Broker API.
 
@@ -51,8 +53,9 @@ Usage:
         $onlyDeposits        = (bool) $this->option('deposits-only');
         $onlyWithdrawals     = (bool) $this->option('withdrawals-only');
         $onlyChallengeBuyers = (bool) $this->option('challenge-buyers-only');
+        $onlyLoginTimestamps = (bool) $this->option('login-timestamps-only');
         $runAll              = ! $onlyOffers && ! $onlyAccounts && ! $onlyDeposits
-            && ! $onlyWithdrawals && ! $onlyChallengeBuyers;
+            && ! $onlyWithdrawals && ! $onlyChallengeBuyers && ! $onlyLoginTimestamps;
 
         if (! $full && ! $incremental && $runAll) {
             $this->error('Specify --full, --incremental, or a specific --*-only flag.');
@@ -85,6 +88,10 @@ Usage:
 
         if ($runAll || $onlyAccounts) {
             $this->runJob('Accounts', new SyncAccountsJob($dryRun, $incremental), $mtr);
+        }
+
+        if ($runAll || $onlyLoginTimestamps) {
+            $this->runJob('Login Timestamps', new SyncLoginTimestampsJob($dryRun), $mtr);
         }
 
         // Challenge buyers runs after accounts so newly created people are already present.

@@ -174,6 +174,31 @@ class Client
     }
 
     /**
+     * Fetch the most recent LOGIN timeline event for an account.
+     * Returns null if the account has no login history or is not found (404).
+     *
+     * @return array{details: string, event: string, createdBy: ?string, created: string}|null
+     */
+    public function latestLoginEvent(string $accountUuid): ?array
+    {
+        try {
+            $response = $this->get("/v1/accounts/{$accountUuid}/timeline-events", [
+                'type' => 'LOGIN',
+                'sort' => 'created,desc',
+                'size' => 1,
+            ]);
+            $events = $response['timelineEvents'] ?? [];
+
+            return $events[0] ?? null;
+        } catch (RequestException $e) {
+            if ($e->getResponse()?->getStatusCode() === 404) {
+                return null;
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * Fetch a single CRM account by email address.
      * Returns null on 404 (account not found in MTR).
      * Confirmed working: /v1/accounts/by-email/{email} returns 200 with full account shape.
