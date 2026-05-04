@@ -68,13 +68,13 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 
 - ~~**Phase C browser smoke test (A–J)**~~ — All 10 checks passed 2026-05-03. Two bugs fixed (bc55f85, 46e1116) and deployed.
 - **Cloudflare MTR whitelist** — production droplet `144.126.225.3` still blocked (`cf-mitigated: challenge`). External blocker. Re-test with `curl -sI` diagnostic when MTR confirms action taken.
-- **Migration bootstrap email — must not hardcode** — `2026_05_02_000001` hardcodes `werner@market-funded.com`; silently skipped on production. Next migration that bootstraps a user must use `config('app.super_admin_email')` or equivalent. Add a post-migration assertion that verifies the row was actually updated.
+- ~~**Migration bootstrap email — must not hardcode**~~ ✅ Fixed in v1.2.2 — now uses `config('app.admin_email')` / `ADMIN_EMAIL` env var. Production `.env` updated.
 - **Production first-sync plan** — when Cloudflare resolves: (1) run `mtr:sync --full` with `memory_limit=1G`, expect ~29k people + ~5.8k transactions, ETA ~8–12 min; (2) watch Horizon dashboard for failures; (3) verify `php artisan tinker` people/transaction counts match prior local sync; (4) trigger `metrics:refresh` after sync completes.
 - **Sales team onboarding flow** — create CRM users with exact MTR account_manager name strings so `account_manager_user_id` auto-populates on next sync. Roles, permissions, first-login guide.
 - Port 8080 ufw rule on production — assumed Reverb WebSocket, not yet verified. Confirm or remove.
 - ~~System updates + kernel reboot complete (kernel 6.8.0-111, all services up).~~ ✅ Done 2026-05-01
 - Retry `libgd3` upgrade when `ppa.launchpadcontent.net` is reachable from production (deferred — repo unreachable during upgrade, no functional impact).
-- Delete pre-update DigitalOcean snapshot (`before-system-updates-2026-05-01`) — delete ~2026-05-08 (~$0.18/month while it exists).
+- ~~Delete pre-update DigitalOcean snapshot (`before-system-updates-2026-05-01`)~~ ✅ Deleted 2026-05-04.
 - Explicit `WA_FEATURE_ENABLED=false` in production `.env` (currently relies on config default).
 - ~~`deploy.sh` added to git (8bfa975) — `core.fileMode false` fix included.~~ ✅ Done 2026-05-01
 - ~~**Fix deploy.sh for non-root deploys**~~ ✅ Done 2026-05-02 — sudoers exception added, `sudo -n supervisorctl restart all`. Verified.
@@ -82,7 +82,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Delete `deploy.sh.local-backup` from production server once new deploy.sh verified across multiple deploys.
 - Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
 - Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
-- **BUG: `days_since_last_login` is 0 for all rows in `person_metrics`** — "Dormant (10d+ no login)" filter returns zero results. Suspected causes: (1) `RefreshPersonMetricsJob` may not calculate `days_since_last_login` from `last_online_at`, (2) `last_online_at` may not be synced from MTR's `lastOnlineTime` field, or (3) both. Investigate `RefreshPersonMetricsJob` and `SyncAccountsJob` before enabling the Dormant filter. Do not surface this filter to agents until fixed.
+- **BUG: `days_since_last_login` shows Never for all clients** — Root cause confirmed 2026-05-04: MTR's `GET /v1/accounts` does not return `lastLogin` in the actual API response despite it being documented in v1.25 spec. `SyncAccountsJob` field name corrected to `lastLogin` (was `lastOnlineTime`) in commit `66cbd11` — will auto-populate once MTR fixes their API. **Action required: raise with QuickTrade/MTR:** (1) Why is `lastLogin` absent from `GET /v1/accounts` responses? (2) Do you support a CRM webhook event for "client logged in"? Until resolved: "Days Since Login" shows Never everywhere, "Dormant (10d+ no login)" filter returns zero results. Do not surface the Dormant filter to agents.
 - **v1.2.1 full smoke test (Grace + Derick)** — before deploying to production, run the full Phase C surface: every page, every filter, every widget, as both agents. Goal: catch anything lurking before real agents use it.
 
 ---
@@ -137,9 +137,9 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 **Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed.
 **Phase B + Phase C (permission system + enforcement)** ✅ Deployed to production 2026-05-03 as v1.2.0.
 
-**194 tests passing.**
+**195 tests passing.**
 
-**Production state:** DB empty pending Cloudflare MTR API whitelist. No sync data yet. Werner manually bootstrapped `is_super_admin = true` — migration hardcoded `werner@market-funded.com` but production CRM login is `werner.c@me.com`.
+**Production state:** DB empty pending Cloudflare MTR API whitelist. No sync data yet. Werner manually bootstrapped `is_super_admin = true`. Migration bootstrap email hardcoding fixed in v1.2.2 — now reads `ADMIN_EMAIL` from `.env` (set to `werner.c@me.com` on production).
 
 **Next:** Phase C browser smoke test (A–J matrix). See "Next Session — First Task" section below.
 
