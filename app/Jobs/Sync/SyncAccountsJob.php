@@ -128,7 +128,7 @@ class SyncAccountsJob implements ShouldQueue
                     'became_active_client_at' => $isClient
                         ? $this->parseDateTime($raw['leadDetails']['becomeActiveClientTime'])
                         : null,
-                    'last_online_at'     => $this->parseDateTime($raw['lastOnlineTime'] ?? null),
+                    'last_online_at'     => $this->parseDateTime($raw['lastLogin'] ?? null),
                     'mtr_last_synced_at' => now(),
                     'mtr_created_at'     => $this->parseDateTime($raw['created'] ?? null),
                     'mtr_updated_at'     => $this->parseDateTime($raw['updated'] ?? null),
