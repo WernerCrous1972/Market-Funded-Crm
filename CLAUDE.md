@@ -82,7 +82,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Delete `deploy.sh.local-backup` from production server once new deploy.sh verified across multiple deploys.
 - Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
 - Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
-- **BUG: `days_since_last_login` shows Never for all clients** — Root cause confirmed 2026-05-04: MTR's `GET /v1/accounts` does not return `lastLogin` in the actual API response despite it being documented in v1.25 spec. `SyncAccountsJob` field name corrected to `lastLogin` (was `lastOnlineTime`) in commit `66cbd11` — will auto-populate once MTR fixes their API. **Action required: raise with QuickTrade/MTR:** (1) Why is `lastLogin` absent from `GET /v1/accounts` responses? (2) Do you support a CRM webhook event for "client logged in"? Until resolved: "Days Since Login" shows Never everywhere, "Dormant (10d+ no login)" filter returns zero results. Do not surface the Dormant filter to agents.
+- ~~**BUG: `days_since_last_login`**~~ ✅ Fixed 2026-05-04 — `GET /v1/accounts/{uuid}/timeline-events?type=LOGIN` used instead of missing `lastLogin` API field. `mtr_account_uuid` added to people, `SyncLoginTimestampsJob` built. Local test: 777/1,292 clients populated. Dormant filter now returns real results. Production column deployed — run `mtr:sync --login-timestamps-only --full` after Cloudflare resolves.
 - **v1.2.1 full smoke test (Grace + Derick)** — before deploying to production, run the full Phase C surface: every page, every filter, every widget, as both agents. Goal: catch anything lurking before real agents use it.
 
 ---
@@ -137,7 +137,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 **Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed.
 **Phase B + Phase C (permission system + enforcement)** ✅ Deployed to production 2026-05-03 as v1.2.0.
 
-**195 tests passing.**
+**195 tests passing. Deployed commit: `364e7c2`**
 
 **Production state:** DB empty pending Cloudflare MTR API whitelist. No sync data yet. Werner manually bootstrapped `is_super_admin = true`. Migration bootstrap email hardcoding fixed in v1.2.2 — now reads `ADMIN_EMAIL` from `.env` (set to `werner.c@me.com` on production).
 
