@@ -71,7 +71,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - ~~**Migration bootstrap email — must not hardcode**~~ ✅ Fixed in v1.2.2 — now uses `config('app.admin_email')` / `ADMIN_EMAIL` env var. Production `.env` updated.
 - **Production first-sync plan** — when Cloudflare resolves: (1) run `mtr:sync --full` with `memory_limit=1G`, expect ~29k people + ~5.8k transactions, ETA ~8–12 min; (2) watch Horizon dashboard for failures; (3) verify `php artisan tinker` people/transaction counts match prior local sync; (4) trigger `metrics:refresh` after sync completes.
 - **Sales team onboarding flow** — create CRM users with exact MTR account_manager name strings so `account_manager_user_id` auto-populates on next sync. Roles, permissions, first-login guide.
-- Port 8080 ufw rule on production — assumed Reverb WebSocket, not yet verified. Confirm or remove.
+- ~~Port 8080 ufw rule on production~~  ✅ Removed 2026-05-06 — PHP binds Reverb on 127.0.0.1:8080 (localhost only), external ufw rule was unnecessary.
 - ~~System updates + kernel reboot complete (kernel 6.8.0-111, all services up).~~ ✅ Done 2026-05-01
 - Retry `libgd3` upgrade when `ppa.launchpadcontent.net` is reachable from production (deferred — repo unreachable during upgrade, no functional impact).
 - ~~Delete pre-update DigitalOcean snapshot (`before-system-updates-2026-05-01`)~~ ✅ Deleted 2026-05-04.
@@ -79,11 +79,11 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - ~~`deploy.sh` added to git (8bfa975) — `core.fileMode false` fix included.~~ ✅ Done 2026-05-01
 - ~~**Fix deploy.sh for non-root deploys**~~ ✅ Done 2026-05-02 — sudoers exception added, `sudo -n supervisorctl restart all`. Verified.
 - Investigate adding `php artisan test` pre-deploy gate to deploy.sh — abort on any failure.
-- Delete `deploy.sh.local-backup` from production server once new deploy.sh verified across multiple deploys.
+- ~~Delete `deploy.sh.local-backup` from production server~~  ✅ Deleted 2026-05-06.
 - Phase 4: health scoring factors 5 & 6 (equity snapshots — gRPC stream vs REST polling decision).
 - Phase 4: AI agent integration (Claude API into `RouteToAgentListener`).
 - ~~**BUG: `days_since_last_login`**~~ ✅ Fixed 2026-05-04 — `GET /v1/accounts/{uuid}/timeline-events?type=LOGIN` used instead of missing `lastLogin` API field. `mtr_account_uuid` added to people, `SyncLoginTimestampsJob` built. Local test: 777/1,292 clients populated. Dormant filter now returns real results. Production column deployed — run `mtr:sync --login-timestamps-only --full` after Cloudflare resolves.
-- **v1.2.1 full smoke test (Grace + Derick)** — before deploying to production, run the full Phase C surface: every page, every filter, every widget, as both agents. Goal: catch anything lurking before real agents use it.
+- ~~**v1.2.1 full smoke test (Grace + Derick)**~~ ✅ Passed 2026-05-06. All 10 checks passed for both agents. Note: Edit Contact shows `lead_status` only for agents — `account_manager` reassignment is admin-only by design.
 
 ---
 
@@ -137,11 +137,17 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 **Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed.
 **Phase B + Phase C (permission system + enforcement)** ✅ Deployed to production 2026-05-03 as v1.2.0.
 
-**195 tests passing. Deployed commit: `364e7c2`**
+**195 tests passing. Deployed commit: `e2629a4` (deployed 2026-05-06).**
 
 **Production state:** DB empty pending Cloudflare MTR API whitelist. No sync data yet. Werner manually bootstrapped `is_super_admin = true`. Migration bootstrap email hardcoding fixed in v1.2.2 — now reads `ADMIN_EMAIL` from `.env` (set to `werner.c@me.com` on production).
 
-**Next:** Phase C browser smoke test (A–J matrix). See "Next Session — First Task" section below.
+**Last session (2026-05-06):**
+- Discovered + fixed Financial Summary inflation bug — `RefreshPersonMetricsJob` had a Cartesian product between transactions and trading_accounts, multiplying SUM aggregates by trading account count. Fix in `e2629a4`. All 29,411 local metrics rows recalculated correctly. Verified against MTR for 5 clients.
+- Smoke test passed for Grace + Derick — all 10 checks. Note: Edit Contact shows `lead_status` only for agents (no `account_manager` reassignment) — admin-only by design. Original spec was wrong.
+- Deployed bundle to production. Production metrics refreshed (no rows yet — DB empty).
+- Server hardening: removed unused ufw 8080 rule (Reverb binds 127.0.0.1 only); deleted `deploy.sh.local-backup`. ufw now: SSH + Nginx only.
+
+**Next:** Phase 4. Werner is reviewing `market-funded-crm-phase-0-brief.md` Phase 4 section before planning.
 
 ---
 

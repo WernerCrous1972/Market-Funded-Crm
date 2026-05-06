@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] — 2026-05-06
+
+### Added
+
+- **`mtr_account_uuid` on `people`** — new migration adds `mtr_account_uuid` column (nullable, unique). `SyncAccountsJob` now stores `raw['uuid']` on every person record. Required to call per-person timeline endpoints.
+
+- **`SyncLoginTimestampsJob`** — iterates all CLIENT-type people who have an `mtr_account_uuid`, calls `GET /v1/accounts/{uuid}/timeline-events?type=LOGIN` for each, and updates `last_online_at` from the most recent login event. Local test: 777 of 1,292 clients populated. `days_since_last_login` in `person_metrics` now calculates correctly; Dormant filter returns real results.
+
+- **`Client::latestLoginEvent()`** — new method on the MTR API client that fetches the most recent LOGIN timeline event for a given account UUID.
+
+- **`mtr:sync --login-timestamps-only`** flag — runs `SyncLoginTimestampsJob` only. Also runs automatically after accounts in a `--full` sync.
+
+- **MTR webhook test receiver** (`POST /webhooks/mtr`) — logs full payload and all headers to the Laravel stack log, returns 200. Phase 1 only: confirms MTR can reach the CRM and captures their auth mechanism. Phase 2 (signature verification + `ProcessMtrWebhookJob` dispatch) is a future task.
+
+### Fixed
+
+- **`lastLogin` field name in `SyncAccountsJob`** — corrected from `lastOnlineTime` to `lastLogin` per MTR API docs. The field is currently not returned by the live API despite being documented — raised with MTR/QuickTrade. Will populate `last_online_at` automatically once MTR begins returning it.
+
+- **Hardcoded admin email in Phase B migration** (`v1.2.2`) — bootstrap step used `werner@market-funded.com` directly, which silently skipped on production where the login is `werner.c@me.com`. Now reads `config('app.admin_email')` / `ADMIN_EMAIL` env var. Production `.env` updated to `ADMIN_EMAIL=werner.c@me.com`. `.env.example` and `config/app.php` updated accordingly.
+
+### Fixed
+
+- **Financial Summary inflation for multi-account clients** — `RefreshPersonMetricsJob` had a `LEFT JOIN trading_accounts` in the same query as the transaction aggregates. A person with N trading accounts had every transaction row duplicated N times, inflating all `SUM(amount_cents)` aggregates by the same factor. A client with 3 accounts and a $5,000 deposit showed $15,000. Fixed by replacing the join with correlated `EXISTS` subqueries for `has_markets`, `has_capital`, `has_academy` — these only need a boolean, not a row-multiplying join. Full metrics refresh run locally (29,411 rows corrected). Verified against MTR for 5 clients — all match. (`e2629a4`)
+
+### Verified
+
+- Full Grace + Derick smoke test (10-check matrix) passed 2026-05-06. Both agents: branch scoping, assigned-only, financials visibility, 403 on cross-agent URLs, mini edit form, no email campaigns, empty state on branch revoke, restore on re-add, financials toggle. All correct.
+- Confirmed: agents see `lead_status` only in Edit Contact (no `account_manager` field) — this is correct, reassignment is admin-only. Original smoke test spec was wrong on this point.
+
+### Pending
+
+- Production `mtr:sync --login-timestamps-only --full` blocked on Cloudflare IP whitelist (`144.126.225.3`). Run after MTR confirms whitelist action.
+- Run `php artisan metrics:refresh` on production immediately after deploying this fix.
+
+---
+
 ## [1.2.2] — 2026-05-04
 
 ### Fixed
