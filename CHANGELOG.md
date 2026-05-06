@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] — 2026-05-06
+## [Unreleased] — 2026-05-06 (later — Phase 4a milestone 1)
+
+### Added — Phase 4a milestone 1: Henry integration foundation
+
+- **`Docs/PHASE_4A_PLAN.md`** — full 16-section plan for Phase 4a: AI outreach engine + Henry integration. Covers autonomous + reviewed modes, model routing (Sonnet 4.6 / Haiku 4.5 with external fallback), compliance gate, cost ceilings ($300 soft / $500 hard), 5 milestones, risk register. Voice agent deferred to Phase 4b.
+
+- **`App\Services\Notifications\TelegramNotifier`** — direct Telegram Bot API client for outbound CRM → Werner notifications. Uses Henry's bot (`@Werner1971_Bot`) but talks to Telegram directly, not through the OpenClaw gateway. Messages prefixed `[MFU CRM]` so Werner can distinguish CRM alerts from Henry's analytical voice in the same chat. Independent failure mode — CRM can alert even when Henry's gateway is down.
+
+- **`App\Services\Henry\GatewayClient`** — gateway reachability probe (`GET /health`, cached 30s). Used by the dashboard status widget. Phase 4a does not implement the WebSocket RPC client — Henry talks to the CRM via MCP tools instead, which only need our HTTP API.
+
+- **`App\Http\Controllers\Api\HenryController`** + `routes/api.php` — four endpoints under `/api/henry/*`: `health`, `people/search`, `people/{id}` (full summary with metrics + recent transactions), `metrics/book`. Authenticated by `App\Http\Middleware\HenryApiToken` (shared bearer secret).
+
+- **`App\Filament\Widgets\HenryStatusWidget`** — three-stat header widget on the admin dashboard: Henry gateway state, Telegram bot reachability, AI ops phase. Super-admin only via `canView()` gate.
+
+- **Configs:** `config/henry.php` and `config/notifications.php`. Env additions: `HENRY_GATEWAY_URL`, `HENRY_API_TOKEN`, `TELEGRAM_NOTIFY_ENABLED`.
+
+### Fixed — Phase 4a milestone 1
+
+- **Telegram bot token broke Guzzle URL resolution.** Bot tokens contain a colon (e.g. `8556858630:AAHc...`); Guzzle parses that as the `host:port` separator when resolving relative paths against `base_uri`, and cURL rejects with "Port number was not a decimal number between 0 and 65535". Fixed by dropping `base_uri` and passing the full `https://api.telegram.org/...` URL at every call site. Caught during the milestone 1 live demo. (`24faf6c`)
+
+### Verified — Phase 4a milestone 1
+
+- 23 new tests added (14 unit + 9 feature). Full suite: 218 passing (was 195).
+- Live Telegram demo: notifier sent `[MFU CRM] Hello from the CRM! ...` message — landed on Werner's phone successfully.
+- Branch `feat/phase-4a-m1-henry` pushed to GitHub. Henry can read the plan + browse the new code at https://github.com/WernerCrous1972/Market-Funded-Crm/tree/feat/phase-4a-m1-henry.
+
+### Next — Phase 4a milestone 2
+
+- Build a Node.js MCP shim at `~/openclaw/mcp-servers/market-funded-crm/index.js` that exposes the four `/api/henry/*` endpoints as native MCP tools (`search_people`, `get_person`, `book_metrics`, `health`). Werner registers it in `~/.openclaw/openclaw.json` once ready. After that, Henry can answer "how many leads did we get this week?" from his Telegram chat by calling the CRM directly.
+
+- Then start the AI outreach engine itself: migrations, `ModelRouter`, `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. Werner adds `ANTHROPIC_API_KEY` to `.env` at the start of milestone 2.
+
+---
+
+## [Unreleased] — 2026-05-06 (earlier)
 
 ### Added
 
