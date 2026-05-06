@@ -43,7 +43,8 @@ class TelegramNotifier
         $chatId = (string) config('notifications.telegram.chat_id');
 
         try {
-            $response = $this->client()->post("bot{$token}/sendMessage", [
+            // Absolute URL — relative paths break on the colon in the bot token.
+            $response = $this->client()->post("https://api.telegram.org/bot{$token}/sendMessage", [
                 'json' => [
                     'chat_id'    => $chatId,
                     'text'       => $body,
@@ -80,7 +81,7 @@ class TelegramNotifier
 
         try {
             $token    = (string) config('notifications.telegram.bot_token');
-            $response = $this->client()->get("bot{$token}/getMe");
+            $response = $this->client()->get("https://api.telegram.org/bot{$token}/getMe");
             $data     = json_decode((string) $response->getBody(), true) ?? [];
             return (bool) ($data['ok'] ?? false);
         } catch (GuzzleException) {
@@ -96,9 +97,11 @@ class TelegramNotifier
 
     private function client(): GuzzleClient
     {
+        // No base_uri here — bot tokens contain a colon, which Guzzle treats as
+        // a port separator when resolving relative paths. We pass absolute URLs
+        // at every call site instead.
         return $this->http ?? new GuzzleClient([
-            'base_uri' => 'https://api.telegram.org/',
-            'timeout'  => (int) config('notifications.telegram.timeout_seconds', 5),
+            'timeout' => (int) config('notifications.telegram.timeout_seconds', 5),
         ]);
     }
 }
