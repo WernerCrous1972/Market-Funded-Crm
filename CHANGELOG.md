@@ -33,11 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live Telegram demo: notifier sent `[MFU CRM] Hello from the CRM! ...` message — landed on Werner's phone successfully.
 - Branch `feat/phase-4a-m1-henry` pushed to GitHub. Henry can read the plan + browse the new code at https://github.com/WernerCrous1972/Market-Funded-Crm/tree/feat/phase-4a-m1-henry.
 
-### Next — Phase 4a milestone 2
+### Phase 4a milestone 2 — first task ✅ (Henry MCP shim)
 
-- Build a Node.js MCP shim at `~/openclaw/mcp-servers/market-funded-crm/index.js` that exposes the four `/api/henry/*` endpoints as native MCP tools (`search_people`, `get_person`, `book_metrics`, `health`). Werner registers it in `~/.openclaw/openclaw.json` once ready. After that, Henry can answer "how many leads did we get this week?" from his Telegram chat by calling the CRM directly.
+- **Built the Node.js MCP shim** at `~/openclaw/mcp-servers/market-funded-crm/index.js`. Reference copy committed to `Docs/mcp-shim/` in the CRM repo. Four tools exposed: `health`, `search_people`, `get_person`, `book_metrics` — each forwards to the matching `/api/henry/*` endpoint with bearer auth. `post_event` and `pause_autonomous` deferred to milestones 3 + 4 since the corresponding CRM endpoints don't exist yet. Stdio transport. Logs go to stderr (stdout is reserved for MCP wire protocol).
+- **Verified end-to-end via `@modelcontextprotocol/inspector --cli`** — all four tools called against live local CRM, real data returned, error path (404 on unknown UUID) surfaces as `isError: true`.
+- **Registered in OpenClaw via `openclaw mcp set market-funded-crm '<json>'`**. Direct edit of `~/.openclaw/openclaw.json` is unsafe — the gateway races with external editors and overwrites within seconds (this is what produced the 60+ "clobbered" backups in late April 2026). Always use the CLI.
+- **Live demo passed:** Werner asked Henry "how is our book looking?" via Telegram → Henry called `book_metrics` → answered with real numbers (29,411 people, MTD $4,309 deposits, 634 dormant 14d+, 543 dormant 30d+). Bidirectional Henry ↔ CRM integration confirmed live.
 
-- Then start the AI outreach engine itself: migrations, `ModelRouter`, `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. Werner adds `ANTHROPIC_API_KEY` to `.env` at the start of milestone 2.
+### Next — Phase 4a milestone 2 (continued)
+
+- AI outreach engine: migrations for the 5 new tables, `config/ai.php`, `ModelRouter` (with Sonnet 4.6 / Haiku 4.5 / external fallback chain), `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. Werner adds `ANTHROPIC_API_KEY` to `.env` at the start of this work.
 
 ---
 

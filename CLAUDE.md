@@ -151,28 +151,33 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Live demo passed: notifier sent `[MFU CRM]` Telegram to Werner — landed on phone. Caught + fixed a Guzzle URL-resolution bug (bot token colon broke `base_uri`).
 - Earlier in the same calendar day: Financial Summary inflation bug found + fixed (`e2629a4`); Grace + Derick smoke test (10-check matrix) passed; ufw + deploy.sh.local-backup cleanup.
 
-**Next:** Phase 4a milestone 2. First task: Node.js MCP shim at `~/openclaw/mcp-servers/market-funded-crm/index.js` exposing the `/api/henry/*` endpoints as native MCP tools so Henry can answer CRM questions natively. Then start the AI outreach engine itself (migrations, ModelRouter, DraftService, ComplianceAgent, OutreachOrchestrator). Werner adds `ANTHROPIC_API_KEY` to `.env` at start of milestone 2.
+**Phase 4a milestone 2 — first task done.** MCP shim built at `~/openclaw/mcp-servers/market-funded-crm/` (reference copy in `Docs/mcp-shim/`). Registered via `openclaw mcp set` (NOT direct file edit — the gateway races and overwrites). Live demo passed: Henry called `book_metrics` from a Telegram chat with Werner and answered with real numbers.
+
+**Next:** Continue milestone 2 — AI outreach engine. Migrations for 5 new tables, `config/ai.php`, `ModelRouter`, `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. Werner adds `ANTHROPIC_API_KEY` to `.env` first.
 
 ---
 
 ## Next Session — First Task
 
-**Phase 4a milestone 2: build the Node.js MCP shim** so Henry can call the CRM's `/api/henry/*` endpoints as native MCP tools.
+**Continue Phase 4a milestone 2 — start the AI outreach engine.**
 
-Read the design first:
-- `Docs/PHASE_4A_PLAN.md` §5.5 + §8 — Henry integration design (Telegram-direct + MCP-only)
-- The existing `feat/phase-4a-m1-henry` branch — milestone 1 Laravel side, already pushed to GitHub
+Milestone 2 first task (the MCP shim) shipped 2026-05-06; Henry can already answer CRM questions on Telegram. Now build the actual outreach engine — the autonomous side of Phase 4a.
 
-Outline:
-1. Scaffold `~/openclaw/mcp-servers/market-funded-crm/` (Node.js, `@modelcontextprotocol/sdk`)
-2. Tools to expose: `health`, `search_people(q, limit?)`, `get_person(id)`, `book_metrics()` — each forwards to the matching `/api/henry/*` endpoint with the bearer token from env
-3. Werner generates a 32-byte random token, sets it in CRM's `.env` as `HENRY_API_TOKEN` AND in the shim's launch env as `MFU_CRM_API_TOKEN`
-4. Werner adds the MCP server entry to `~/.openclaw/openclaw.json` under `mcp.servers.market-funded-crm` (transport: stdio, command: node, args: path to shim) — Claude Code shows the diff first; that file got "clobbered" 60+ times in late April so we treat it carefully
-5. Demo: Werner asks Henry "how many leads did we get this week?" via Telegram → Henry calls `book_metrics` → answers Werner
+Before writing code:
+1. Confirm `ANTHROPIC_API_KEY` is set in `.env` — if not, ask Werner to add it (he has one from earlier work)
+2. Re-read `Docs/PHASE_4A_PLAN.md` §4 (data model), §5 (services), §6 (triggers), §9 (cost ceilings)
 
-Then milestone 2 continues with the AI outreach engine: migrations for the 5 new tables, `config/ai.php`, `ModelRouter`, `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. **Werner adds `ANTHROPIC_API_KEY` to `.env` at the start of this work** (needed for any Claude API call).
+Order of work for milestone 2 continuation:
+1. Migrations for the five new tables (`outreach_templates`, `ai_drafts`, `ai_compliance_checks`, `ai_usage_log`, `outreach_inbound_messages`)
+2. `config/ai.php` (per-task model map, fallback chain, cost ceilings) and `config/outreach_compliance.php` (banned phrases, required disclosures)
+3. `App\Services\AI\ModelRouter` — primary + Haiku fallback (external providers stubbed)
+4. `App\Services\AI\DraftService` + `App\Services\AI\ComplianceAgent` + `App\Services\AI\CostCeilingGuard`
+5. `App\Services\AI\OutreachOrchestrator` (reviewed mode only first; autonomous wiring in milestone 4)
+6. Tests for everything above (mocked Claude responses)
 
-Don't start coding milestone 2 until Werner explicitly says go — read the plan, ask any clarifying questions, then proceed.
+Demo for end of milestone 2: run a one-off draft via Tinker; verify `ai_drafts` row, `ai_compliance_checks` row, `ai_usage_log` cost accrual.
+
+Do NOT start until Werner says go.
 
 ---
 
