@@ -124,9 +124,15 @@ class RefreshPersonMetricsJob implements ShouldQueue
                  THEN DATE_PART('day', NOW() - p.last_online_at)::int
                  ELSE NULL END                                             AS days_since_last_login,
 
-            COALESCE(BOOL_OR(ta.pipeline = 'MFU_MARKETS'), false)          AS has_markets,
-            COALESCE(BOOL_OR(ta.pipeline = 'MFU_CAPITAL'), false)          AS has_capital,
-            COALESCE(BOOL_OR(ta.pipeline = 'MFU_ACADEMY'), false)          AS has_academy,
+            -- Subqueries avoid a Cartesian product between transactions and trading_accounts.
+            -- A direct LEFT JOIN on trading_accounts multiplies transaction rows by account count,
+            -- inflating all SUM() aggregates.
+            EXISTS (SELECT 1 FROM trading_accounts ta
+                    WHERE ta.person_id = p.id AND ta.pipeline = 'MFU_MARKETS') AS has_markets,
+            EXISTS (SELECT 1 FROM trading_accounts ta
+                    WHERE ta.person_id = p.id AND ta.pipeline = 'MFU_CAPITAL') AS has_capital,
+            EXISTS (SELECT 1 FROM trading_accounts ta
+                    WHERE ta.person_id = p.id AND ta.pipeline = 'MFU_ACADEMY') AS has_academy,
 
             -- Month-to-date aggregates
             COALESCE(SUM(CASE WHEN t.category = 'EXTERNAL_DEPOSIT'
@@ -149,8 +155,6 @@ class RefreshPersonMetricsJob implements ShouldQueue
         LEFT JOIN transactions t
             ON t.person_id = p.id
             AND t.status   = 'DONE'
-        LEFT JOIN trading_accounts ta
-            ON ta.person_id = p.id
 
         WHERE 1=1 {$personFilter}
 
