@@ -66,6 +66,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 
 > **Maintenance note:** Add items as they're identified. Remove or strike through when complete.
 
+- **Phase 4.5 priority — equity / challenge state stream.** Triggers 4 (`challenge_passed`) and 5 (`challenge_failed`) are deferred from Phase 4a milestone 4 because the MTR equity/state data isn't synced. These are the *highest-value* triggers in the outreach engine — passed = funded trader celebration, failed = retry opportunity. Henry flagged this as a 4.5 priority on 2026-05-06. Decision still pending: gRPC stream vs nightly REST polling. Plan a focused spike before committing.
 - ~~**Phase C browser smoke test (A–J)**~~ — All 10 checks passed 2026-05-03. Two bugs fixed (bc55f85, 46e1116) and deployed.
 - **Cloudflare MTR whitelist** — production droplet `144.126.225.3` still blocked (`cf-mitigated: challenge`). External blocker. Re-test with `curl -sI` diagnostic when MTR confirms action taken.
 - ~~**Migration bootstrap email — must not hardcode**~~ ✅ Fixed in v1.2.2 — now uses `config('app.admin_email')` / `ADMIN_EMAIL` env var. Production `.env` updated.
