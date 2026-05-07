@@ -70,7 +70,19 @@ class ComplianceAgent
         }
 
         $allFlags = array_merge($hardFlags, $aiFlags);
-        $passed   = $hardPassed && $aiPassed;
+
+        // Final pass/fail derives from FLAG SEVERITY, not the AI's self-rated
+        // `passed` boolean. The AI tends to be over-strict on its own output
+        // schema (it'll say `passed=false` even when all its flags are soft).
+        // Spec: hard flags block; soft flags log + pass.
+        $hasHardFlag = false;
+        foreach ($allFlags as $flag) {
+            if (($flag['severity'] ?? '') === 'hard') {
+                $hasHardFlag = true;
+                break;
+            }
+        }
+        $passed = ! $hasHardFlag;
 
         $check = AiComplianceCheck::create([
             'draft_id'      => $draft->id,

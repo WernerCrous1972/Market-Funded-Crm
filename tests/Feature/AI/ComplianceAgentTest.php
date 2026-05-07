@@ -141,7 +141,7 @@ describe('ComplianceAgent', function () {
         expect($draft->compliance_check_id)->toBe($check->id);
     });
 
-    it('blocks when the AI verdict is passed=false even with no hard match', function () {
+    it('blocks when the AI returns hard-severity flags (regardless of self-rated passed)', function () {
         $draft = makeDraft('Click this link now or you lose forever!');
         [$router] = makeFakeRouterForCompliance(
             '{"passed":false,"flags":[{"rule":"urgency_pressure","severity":"hard","excerpt":"now or you lose"}],"verdict":"too aggressive"}'
@@ -155,6 +155,25 @@ describe('ComplianceAgent', function () {
 
         $draft->refresh();
         expect($draft->status)->toBe(AiDraft::STATUS_BLOCKED_COMPLIANCE);
+    });
+
+    it('passes when ALL flags are soft, even if the AI self-rates passed=false', function () {
+        // Real-world finding (live demo, 2026-05-07): the AI tends to flip
+        // its `passed` boolean too eagerly when soft flags exist. We derive
+        // the final pass/fail from flag severity, not the AI's verdict.
+        $draft = makeDraft('Welcome to our trading platform.');
+        [$router] = makeFakeRouterForCompliance(
+            '{"passed":false,"flags":[{"rule":"missing_risk_disclaimer","severity":"soft","excerpt":"no risk warning"}],"verdict":"missing disclaimer"}'
+        );
+
+        $check = (new ComplianceAgent($router))->check($draft);
+
+        expect($check->passed)->toBeTrue();
+        expect($check->flags)->toHaveCount(1);
+        expect($check->flags[0]['severity'])->toBe('soft');
+
+        $draft->refresh();
+        expect($draft->status)->toBe(AiDraft::STATUS_PENDING_REVIEW);
     });
 
     it('passes with soft flags logged when AI returns soft warnings only', function () {
