@@ -145,4 +145,95 @@ describe('Henry API', function () {
             ]);
     });
 
+    // ── postEvent ───────────────────────────────────────────────────────────
+
+    it('records an event attached to a person as an Activity row', function () {
+        $person = Person::factory()->create();
+
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/events', [
+                'event_type'  => 'henry_observation',
+                'person_id'   => $person->id,
+                'description' => 'Client mentioned dissatisfaction with platform speed.',
+                'metadata'    => ['priority' => 'medium'],
+            ]);
+
+        $response->assertCreated()
+            ->assertJson(['recorded' => true, 'attached' => true]);
+
+        $activity = \App\Models\Activity::where('person_id', $person->id)->first();
+        expect($activity)->not->toBeNull();
+        expect($activity->description)->toContain('[Henry/henry_observation]');
+        expect($activity->metadata['source'])->toBe('henry');
+        expect($activity->metadata['priority'])->toBe('medium');
+    });
+
+    it('records an unattached event when person_id is omitted', function () {
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/events', [
+                'event_type'  => 'sync_concern',
+                'description' => 'I noticed the MTR sync logs look odd.',
+            ]);
+
+        $response->assertOk()
+            ->assertJson(['recorded' => true, 'attached' => false]);
+        expect(\App\Models\Activity::count())->toBe(0);
+    });
+
+    it('returns 404 when posting an event for an unknown person', function () {
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/events', [
+                'event_type'  => 'x',
+                'person_id'   => '00000000-0000-0000-0000-000000000000',
+                'description' => 'y',
+            ]);
+
+        $response->assertStatus(404);
+    });
+
+    it('rejects events with missing required fields', function () {
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/events', ['description' => 'no event_type']);
+        $response->assertStatus(422);
+    });
+
+    // ── pauseAutonomous ─────────────────────────────────────────────────────
+
+    it('flips the autonomous kill switch on with action=pause', function () {
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/actions/pause-autonomous', [
+                'action' => 'pause',
+                'reason' => 'Henry detected a compliance pattern that needs review.',
+            ]);
+
+        $response->assertOk()->assertJson(['state' => 'paused']);
+
+        $guard = app(\App\Services\AI\CostCeilingGuard::class);
+        expect($guard->isManuallyPaused())->toBeTrue();
+    });
+
+    it('flips the autonomous kill switch off with action=resume', function () {
+        // Pre-pause
+        app(\App\Services\AI\CostCeilingGuard::class)->pauseAutonomous();
+
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/actions/pause-autonomous', ['action' => 'resume']);
+
+        $response->assertOk()->assertJson(['state' => 'resumed']);
+
+        $guard = app(\App\Services\AI\CostCeilingGuard::class);
+        expect($guard->isManuallyPaused())->toBeFalse();
+    });
+
+    it('rejects invalid action values', function () {
+        $response = $this->withHeader('Authorization', 'Bearer test-secret-token')
+            ->postJson('/api/henry/actions/pause-autonomous', ['action' => 'destroy_all']);
+        $response->assertStatus(422);
+    });
+
+    it('rejects pause requests without auth', function () {
+        $response = $this->postJson('/api/henry/actions/pause-autonomous', ['action' => 'pause']);
+        $response->assertStatus(401);
+    });
+
 });

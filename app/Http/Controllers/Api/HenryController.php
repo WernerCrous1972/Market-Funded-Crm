@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Activity;
 use App\Models\Person;
 use App\Models\PersonMetric;
 use App\Models\Transaction;
+use App\Services\AI\CostCeilingGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Read-mostly endpoints exposed for Henry's MCP server.
@@ -147,6 +150,91 @@ class HenryController extends Controller
                 'over_14_days' => PersonMetric::where('days_since_last_login', '>=', 14)->count(),
                 'over_30_days' => PersonMetric::where('days_since_last_login', '>=', 30)->count(),
             ],
+        ]);
+    }
+
+    /**
+     * Henry posts an event into the CRM. Currently writes an Activity row
+     * tied to a person if a person_id is supplied; otherwise logs to the
+     * Laravel log only (Henry's standalone observations don't have a row
+     * to attach to).
+     *
+     * Body shape:
+     *   {
+     *     "event_type":  "henry_observation" | "manual_flag" | "kyc_concern" | …,
+     *     "person_id":   "uuid (optional)",
+     *     "description": "human-readable summary",
+     *     "metadata":    { ... arbitrary jsonb }
+     *   }
+     */
+    public function postEvent(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'event_type'  => 'required|string|max:64',
+            'person_id'   => 'nullable|uuid',
+            'description' => 'required|string|max:2000',
+            'metadata'    => 'nullable|array',
+        ]);
+
+        // Without a person_id, we still log it but don't write Activity (no FK target).
+        if (empty($data['person_id'])) {
+            Log::info('Henry posted unattached event', $data);
+            return response()->json([
+                'recorded' => true,
+                'attached' => false,
+                'note'     => 'Logged to Laravel log only — no person_id supplied.',
+            ]);
+        }
+
+        $person = Person::find($data['person_id']);
+        if (! $person) {
+            return response()->json(['error' => 'person_not_found'], 404);
+        }
+
+        $activity = Activity::create([
+            'person_id'   => $person->id,
+            'type'        => 'CALL_LOG', // closest existing type for "Henry observed something"
+            'description' => "[Henry/{$data['event_type']}] " . $data['description'],
+            'metadata'    => array_merge(['source' => 'henry', 'event_type' => $data['event_type']], $data['metadata'] ?? []),
+            'occurred_at' => now(),
+        ]);
+
+        return response()->json([
+            'recorded'    => true,
+            'attached'    => true,
+            'activity_id' => $activity->id,
+        ], 201);
+    }
+
+    /**
+     * Henry can flip the autonomous kill switch on or off.
+     *
+     * Body shape:
+     *   { "action": "pause" | "resume", "reason": "string (optional)" }
+     */
+    public function pauseAutonomous(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'action' => 'required|in:pause,resume',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $guard = app(CostCeilingGuard::class);
+
+        if ($data['action'] === 'pause') {
+            $guard->pauseAutonomous();
+            Log::warning('Autonomous AI sends paused via Henry endpoint', $data);
+            return response()->json([
+                'state'  => 'paused',
+                'reason' => $data['reason'] ?? null,
+            ]);
+        }
+
+        $guard->resumeAutonomous();
+        Log::info('Autonomous AI sends resumed via Henry endpoint', $data);
+        return response()->json([
+            'state'  => 'resumed',
+            'reason' => $data['reason'] ?? null,
         ]);
     }
 }

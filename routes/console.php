@@ -35,3 +35,12 @@ Schedule::command('mtr:sync --incremental')
     ->between('06:00', '22:00')
     ->withoutOverlapping()
     ->runInBackground();
+
+// Detect dormant clients (14d / 30d) at 09:00 SAST and dispatch matching
+// autonomous outreach templates. The job is a no-op when no templates have
+// autonomous_enabled = true, so it's safe to run even before any templates
+// are activated. 30-day dedup prevents re-firing for the same person.
+Schedule::job(new \App\Jobs\AI\DetectDormantClientsJob())
+    ->dailyAt('09:00')
+    ->timezone('Africa/Johannesburg')
+    ->withoutOverlapping();

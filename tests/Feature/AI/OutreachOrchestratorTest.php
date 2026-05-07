@@ -70,10 +70,24 @@ describe('OutreachOrchestrator', function () {
 
     function makeOrchInstance(ModelRouter $router, ?CostCeilingGuard $guard = null): OutreachOrchestrator
     {
+        // Stub MessageSender + TelegramNotifier — autonomous send tests
+        // exercise these, but in reviewed-mode tests they're never called.
+        $messageSender = new class extends \App\Services\WhatsApp\MessageSender {
+            public function __construct() {} // skip parent ctor
+            public function send(\App\Models\Person $person, string $body, ?string $templateName = null, array $variables = [], ?string $agentKey = null, ?\App\Models\User $sentByUser = null): void {}
+        };
+        $telegram = new class extends \App\Services\Notifications\TelegramNotifier {
+            public function __construct() {}
+            public function notify(string $message, string $severity = 'info'): bool { return true; }
+            public function isReachable(): bool { return true; }
+        };
+
         return new OutreachOrchestrator(
             new DraftService($router),
             new ComplianceAgent($router),
             $guard ?? new CostCeilingGuard(),
+            $messageSender,
+            $telegram,
         );
     }
 
@@ -248,6 +262,110 @@ describe('OutreachOrchestrator', function () {
         // Should throw on the very first ensureCostAllowed
         expect(fn () => $orch->bulkReviewedDrafts($people, $template))
             ->toThrow(AiOrchestratorException::class);
+    });
+
+    // ── autonomousSend() ────────────────────────────────────────────────────
+
+    it('autonomousSend skips when template is not autonomous_enabled', function () {
+        $person   = Person::factory()->create();
+        $template = makeOrchestratorTemplate(); // autonomous_enabled = false (default)
+
+        $orch = makeOrchInstance(makeQueuedRouter(['unused']));
+
+        $result = $orch->autonomousSend($person, $template, 'lead_created');
+
+        expect($result)->toBeNull();
+        expect(AiDraft::count())->toBe(0);
+    });
+
+    it('autonomousSend skips when template is inactive', function () {
+        $person   = Person::factory()->create();
+        $template = makeOrchestratorTemplate();
+        $template->update(['autonomous_enabled' => true, 'is_active' => false]);
+
+        $orch = makeOrchInstance(makeQueuedRouter(['unused']));
+
+        $result = $orch->autonomousSend($person, $template, 'lead_created');
+
+        expect($result)->toBeNull();
+    });
+
+    it('autonomousSend skips when cost guard refuses autonomous (soft cap hit)', function () {
+        AiUsageLog::create([
+            'id'            => Str::uuid()->toString(),
+            'date'          => now()->toDateString(),
+            'task_type'     => 'compliance_check',
+            'model'         => 'claude-haiku-4-5-20251001',
+            'call_count'    => 1,
+            'tokens_input'  => 0,
+            'tokens_output' => 0,
+            'cost_cents'    => 350_00, // Over $300 soft cap
+        ]);
+
+        $person   = Person::factory()->create();
+        $template = makeOrchestratorTemplate();
+        $template->update(['autonomous_enabled' => true]);
+
+        $orch = makeOrchInstance(makeQueuedRouter(['unused']), new CostCeilingGuard());
+
+        $result = $orch->autonomousSend($person, $template, 'lead_created');
+
+        expect($result)->toBeNull();
+        expect(AiDraft::count())->toBe(0);
+    });
+
+    it('autonomousSend dispatches and marks status=sent on a clean draft', function () {
+        $person   = Person::factory()->create();
+        $template = makeOrchestratorTemplate();
+        $template->update(['autonomous_enabled' => true]);
+
+        $orch = makeOrchInstance(makeQueuedRouter([
+            'Hi! Welcome to Market Funded.',
+            '{"passed":true,"flags":[],"verdict":"clean"}',
+        ]));
+
+        $draft = $orch->autonomousSend($person, $template, 'lead_created', ['source' => 'manual_demo']);
+
+        expect($draft)->toBeInstanceOf(AiDraft::class);
+        expect($draft->status)->toBe(AiDraft::STATUS_SENT);
+        expect($draft->mode)->toBe(AiDraft::MODE_AUTONOMOUS);
+        expect($draft->triggered_by_event)->toBe('lead_created');
+        expect($draft->prompt_full)->toBeNull(); // autonomous compresses prompt_full
+        expect($draft->final_text)->toBe('Hi! Welcome to Market Funded.');
+        expect($draft->sent_at)->not->toBeNull();
+
+        // Activity row written
+        $activity = \App\Models\Activity::where('person_id', $person->id)
+            ->where('type', 'WHATSAPP_SENT')
+            ->first();
+        expect($activity)->not->toBeNull();
+        expect($activity->metadata['draft_id'])->toBe($draft->id);
+        expect($activity->metadata['trigger_event'])->toBe('lead_created');
+    });
+
+    it('autonomousSend does NOT dispatch when compliance blocks (status stays blocked)', function () {
+        $person   = Person::factory()->create();
+        $template = makeOrchestratorTemplate();
+        $template->update(['autonomous_enabled' => true]);
+
+        // Hard regex match in the draft (config from beforeEach)
+        $orch = makeOrchInstance(makeQueuedRouter([
+            'We offer guaranteed returns of 10%/month.', // hard regex match
+            '{"passed":true,"flags":[],"verdict":"clean"}', // unreached
+        ]));
+
+        $draft = $orch->autonomousSend($person, $template, 'lead_created');
+
+        expect($draft->status)->toBe(AiDraft::STATUS_BLOCKED_COMPLIANCE);
+        expect($draft->sent_at)->toBeNull();
+        expect($draft->complianceCheck->passed)->toBeFalse();
+
+        // Activity logs the BLOCK event (not WHATSAPP_SENT)
+        $activity = \App\Models\Activity::where('person_id', $person->id)
+            ->where('type', 'STATUS_CHANGED')
+            ->first();
+        expect($activity)->not->toBeNull();
+        expect($activity->description)->toContain('blocked by compliance');
     });
 
 });

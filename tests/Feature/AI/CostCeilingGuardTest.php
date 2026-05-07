@@ -119,6 +119,52 @@ describe('CostCeilingGuard', function () {
         expect($guard->currentMonthSpendCents())->toBe(80_00);
     });
 
+    it('fires a Telegram once per month when soft cap is first crossed', function () use ($insertUsage) {
+        $insertUsage(310_00); // over soft
+
+        $captured = [];
+        $telegram = new class($captured) extends \App\Services\Notifications\TelegramNotifier {
+            public function __construct(public array &$captured) {}
+            public function notify(string $message, string $severity = 'info'): bool {
+                $this->captured[] = [$severity, $message];
+                return true;
+            }
+            public function isReachable(): bool { return true; }
+        };
+
+        $guard = new CostCeilingGuard($telegram);
+        $guard->check();
+        $guard->check();
+        $guard->check();
+
+        // Only one notification despite three checks
+        expect(count($captured))->toBe(1);
+        expect($captured[0][0])->toBe('warning');
+        expect($captured[0][1])->toContain('SOFT cap crossed');
+    });
+
+    it('fires a Telegram once when hard cap is first crossed (severity=critical)', function () use ($insertUsage) {
+        $insertUsage(550_00); // over hard
+
+        $captured = [];
+        $telegram = new class($captured) extends \App\Services\Notifications\TelegramNotifier {
+            public function __construct(public array &$captured) {}
+            public function notify(string $message, string $severity = 'info'): bool {
+                $this->captured[] = [$severity, $message];
+                return true;
+            }
+            public function isReachable(): bool { return true; }
+        };
+
+        $guard = new CostCeilingGuard($telegram);
+        $guard->check();
+        $guard->check();
+
+        expect(count($captured))->toBe(1);
+        expect($captured[0][0])->toBe('critical');
+        expect($captured[0][1])->toContain('HARD cap crossed');
+    });
+
     it('caches the spend total for cheap repeated reads', function () use ($insertUsage) {
         $insertUsage(10_00);
 

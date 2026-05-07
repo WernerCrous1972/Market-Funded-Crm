@@ -20,8 +20,10 @@ Route::prefix('henry')
     ->middleware('henry.token')
     ->controller(HenryController::class)
     ->group(function () {
-        Route::get('health',          'health');
-        Route::get('people/search',   'searchPeople');
-        Route::get('people/{id}',     'showPerson');
-        Route::get('metrics/book',    'bookMetrics');
+        Route::get('health',                       'health');
+        Route::get('people/search',                'searchPeople');
+        Route::get('people/{id}',                  'showPerson');
+        Route::get('metrics/book',                 'bookMetrics');
+        Route::post('events',                      'postEvent');
+        Route::post('actions/pause-autonomous',    'pauseAutonomous');
     });

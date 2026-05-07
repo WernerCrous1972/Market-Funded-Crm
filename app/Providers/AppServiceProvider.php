@@ -4,13 +4,22 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Events\LargeWithdrawalReceived;
+use App\Events\LeadConverted;
+use App\Events\LeadCreated;
 use App\Events\WhatsApp\WhatsAppMessageReceived;
+use App\Listeners\AI\OnDepositFirst;
+use App\Listeners\AI\OnLargeWithdrawal;
+use App\Listeners\AI\OnLeadCreated;
 use App\Listeners\WhatsApp\RouteToAgentListener;
 use App\Models\Person;
 use App\Models\User;
+use App\Observers\PersonObserver;
 use App\Observers\UserPermissionObserver;
 use App\Policies\PersonPolicy;
+use App\Services\AI\CostCeilingGuard;
 use App\Services\AI\ModelRouter;
+use App\Services\Notifications\TelegramNotifier;
 use GuzzleHttp\Client as GuzzleClient;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
@@ -30,11 +39,31 @@ class AppServiceProvider extends ServiceProvider
                 'timeout'  => (int) config('ai.anthropic.timeout', 30),
             ]));
         });
+
+        // CostCeilingGuard takes an optional TelegramNotifier so it can fire
+        // a once-per-month alert when soft/hard caps are crossed. Wire it
+        // explicitly here so the dependency is available in production but
+        // omitted in unit tests that just instantiate `new CostCeilingGuard()`.
+        $this->app->singleton(CostCeilingGuard::class, function ($app) {
+            return new CostCeilingGuard($app->make(TelegramNotifier::class));
+        });
     }
 
     public function boot(): void
     {
         Event::listen(WhatsAppMessageReceived::class, RouteToAgentListener::class);
+
+        // ── Phase 4a milestone 4: autonomous outreach triggers ───────────────
+        // Each listener inspects the event's person, looks up matching
+        // OutreachTemplate rows where autonomous_enabled=true, and dispatches
+        // OutreachOrchestrator::autonomousSend(). When no template matches OR
+        // none are autonomous_enabled, the listener no-ops silently.
+        Event::listen(LeadCreated::class,             OnLeadCreated::class);
+        Event::listen(LeadConverted::class,           OnDepositFirst::class);
+        Event::listen(LargeWithdrawalReceived::class, OnLargeWithdrawal::class);
+
+        // Person observer dispatches LeadCreated on new LEAD inserts.
+        Person::observe(PersonObserver::class);
 
         // ── Phase B: Super admin bypass ──────────────────────────────────────
         // Super admins pass every Gate check unconditionally. Return null (not

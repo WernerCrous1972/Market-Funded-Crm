@@ -84,6 +84,43 @@ async function crmGet(path, params) {
   return body;
 }
 
+/**
+ * Mirror of crmGet but with a JSON body. POST-only — keeps the surface tight.
+ */
+async function crmPost(path, body) {
+  const url = new URL(`${BASE_URL}${path}`);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body ?? {}),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    throw new Error(`CRM unreachable at ${url.pathname}: ${err.message}`);
+  }
+
+  const text = await response.text();
+  let parsed;
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    parsed = { raw: text };
+  }
+
+  if (!response.ok) {
+    const detail = parsed?.error || parsed?.message || JSON.stringify(parsed).slice(0, 300);
+    throw new Error(`CRM ${response.status} on ${url.pathname}: ${detail}`);
+  }
+
+  return parsed;
+}
+
 const ok = (data) => ({
   content: [{ type: "text", text: typeof data === "string" ? data : JSON.stringify(data, null, 2) }],
 });
@@ -179,8 +216,50 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "post_event",
+  {
+    title: "Record an event in the CRM",
+    description:
+      "Write an observation or flag into the CRM. If a person_id is given, it lands as an Activity row attached to that person and shows up in the timeline. Without a person_id, it's logged for general bookkeeping. Use for: noticing patterns Werner should know about, flagging a client for follow-up, recording a kind of decision or observation that future-you will want to find.",
+    inputSchema: {
+      event_type: z.string().min(1).max(64).describe("Short snake_case label, e.g. 'henry_observation', 'manual_flag', 'kyc_concern'"),
+      description: z.string().min(1).max(2000).describe("Human-readable summary of what happened or what you're flagging"),
+      person_id: z.string().uuid().optional().describe("Optional UUID of the person this is about — use search_people first if needed"),
+      metadata: z.record(z.unknown()).optional().describe("Optional arbitrary key/value metadata"),
+    },
+  },
+  async (args) => {
+    try {
+      return ok(await crmPost("/api/henry/events", args));
+    } catch (e) {
+      return err(e.message);
+    }
+  },
+);
+
+server.registerTool(
+  "pause_autonomous",
+  {
+    title: "Pause or resume autonomous AI sends",
+    description:
+      "Flips the CRM's kill switch for autonomous AI outreach. Reviewed drafts (human-initiated) continue working either way; this only stops event-driven autonomous sends from firing. Use sparingly — only when you spot a real issue Werner needs to be told about. Always include a reason so it lands in the audit log.",
+    inputSchema: {
+      action: z.enum(["pause", "resume"]).describe("'pause' to stop autonomous sends, 'resume' to allow them again"),
+      reason: z.string().max(500).optional().describe("Why are you doing this? (visible in logs)"),
+    },
+  },
+  async ({ action, reason }) => {
+    try {
+      return ok(await crmPost("/api/henry/actions/pause-autonomous", { action, reason }));
+    } catch (e) {
+      return err(e.message);
+    }
+  },
+);
+
 // ────────────────────────────────────────────────────────────────────────────
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-log(`connected — base=${BASE_URL}, tools=4`);
+log(`connected — base=${BASE_URL}, tools=6`);

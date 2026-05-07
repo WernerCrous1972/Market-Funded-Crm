@@ -1,19 +1,23 @@
 # market-funded-crm — MCP shim for Henry
 
 Translates MCP tool calls into authenticated HTTP requests against the
-Market Funded CRM's `/api/henry/*` endpoints. Phase 4a milestone 2.
+Market Funded CRM's `/api/henry/*` endpoints. Phase 4a milestones 2 and 4.
 
 ## Tools
 
-| Tool | Forwards to |
-|---|---|
-| `health` | `GET /api/henry/health` |
-| `search_people` | `GET /api/henry/people/search?q=&limit=` |
-| `get_person` | `GET /api/henry/people/{id}` |
-| `book_metrics` | `GET /api/henry/metrics/book` |
+| Tool | Forwards to | Type |
+|---|---|---|
+| `health` | `GET /api/henry/health` | read |
+| `search_people` | `GET /api/henry/people/search?q=&limit=` | read |
+| `get_person` | `GET /api/henry/people/{id}` | read |
+| `book_metrics` | `GET /api/henry/metrics/book` | read |
+| `post_event` | `POST /api/henry/events` | write — adds Activity row |
+| `pause_autonomous` | `POST /api/henry/actions/pause-autonomous` | write — flips kill switch |
 
-`post_event` and `pause_autonomous` are NOT in this build — the
-corresponding CRM endpoints land later in Phase 4a (milestones 3-4).
+All six are gated by the same shared bearer token (`MFU_CRM_API_TOKEN`
+on the shim side, `HENRY_API_TOKEN` on the CRM side). Reviewed drafts
+keep working when `pause_autonomous` is engaged — only event-driven
+sends are stopped.
 
 ## Required env
 

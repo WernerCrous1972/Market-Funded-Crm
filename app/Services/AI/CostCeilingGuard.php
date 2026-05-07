@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI;
 
 use App\Models\AiUsageLog;
+use App\Services\Notifications\TelegramNotifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 
@@ -32,6 +33,10 @@ class CostCeilingGuard
     public const CACHE_KEY_MONTHLY_SPEND    = 'ai:cost:current_month_cents';
     public const SPEND_CACHE_TTL_SECONDS    = 60;
 
+    public function __construct(
+        private readonly ?TelegramNotifier $telegram = null,
+    ) {}
+
     public function check(): GuardState
     {
         if ($this->isManuallyPaused()) {
@@ -43,14 +48,50 @@ class CostCeilingGuard
         $hardCents  = (int) (config('ai.cost_caps.hard_usd', 500) * 100);
 
         if ($spentCents >= $hardCents) {
+            $this->alertOnceForMonth('hard', $spentCents);
             return GuardState::PauseAll;
         }
 
         if ($spentCents >= $softCents) {
+            $this->alertOnceForMonth('soft', $spentCents);
             return GuardState::PauseAutonomous;
         }
 
         return GuardState::Proceed;
+    }
+
+    /**
+     * Fire a Telegram alert at most once per month per cap level. The marker
+     * key is dropped at the start of each calendar month implicitly because
+     * we include the year-month in the key.
+     *
+     * Called inside check() — keep it cheap and silent on failure.
+     */
+    private function alertOnceForMonth(string $level, int $spentCents): void
+    {
+        if (! $this->telegram) {
+            return; // not wired (e.g. unit tests instantiate without it)
+        }
+
+        $month = CarbonImmutable::now('Africa/Johannesburg')->format('Y-m');
+        $cacheKey = "ai:cost_alert_sent:{$level}:{$month}";
+
+        if (Cache::has($cacheKey)) {
+            return; // already alerted this month
+        }
+
+        $usd = number_format($spentCents / 100, 2);
+        $message = match ($level) {
+            'soft' => "AI cost SOFT cap crossed: \${$usd} this month. Autonomous sends paused; reviewed sends still go.",
+            'hard' => "AI cost HARD cap crossed: \${$usd} this month. ALL AI calls paused. Review usage in /admin/ai-ops.",
+            default => "AI cost alert: {$level} cap, \${$usd}",
+        };
+
+        $this->telegram->notify($message, $level === 'hard' ? 'critical' : 'warning');
+
+        // 35 days TTL — well past the start of next month, so the marker
+        // implicitly resets when the year-month changes.
+        Cache::put($cacheKey, true, now()->addDays(35));
     }
 
     /**
