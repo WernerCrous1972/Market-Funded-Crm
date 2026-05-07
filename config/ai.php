@@ -11,7 +11,10 @@ return [
     */
 
     'anthropic' => [
-        'api_key'     => env('ANTHROPIC_API_KEY'),
+        // CRM-scoped variable on purpose — avoids clashing with a shell-wide
+        // ANTHROPIC_API_KEY (Claude Code / OpenClaw / etc). If someone sets
+        // the bare ANTHROPIC_API_KEY in .env we honour it as a fallback.
+        'api_key'     => env('ANTHROPIC_API_KEY_CRM') ?: env('ANTHROPIC_API_KEY'),
         'base_url'    => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
         'version'     => '2023-06-01',
         'timeout'     => (int) env('ANTHROPIC_TIMEOUT', 30),
