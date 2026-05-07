@@ -151,6 +151,8 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Live demo passed: notifier sent `[MFU CRM]` Telegram to Werner — landed on phone. Caught + fixed a Guzzle URL-resolution bug (bot token colon broke `base_uri`).
 - Earlier in the same calendar day: Financial Summary inflation bug found + fixed (`e2629a4`); Grace + Derick smoke test (10-check matrix) passed; ufw + deploy.sh.local-backup cleanup.
 
+**Phase 4a milestone 3 — COMPLETE ✅** (2026-05-07). Filament UI shipped for the AI outreach engine. Werner / agents can now use the system through the admin: configure templates, click "Draft with AI" on a person, review and approve generated drafts, run bulk-draft on a filtered list, monitor spend + kill switch on the AI Ops page.
+
 **Phase 4a milestone 2 — COMPLETE ✅** (2026-05-07). End-to-end reviewed-mode AI outreach engine works against real Anthropic. Live demo on a real CLIENT generated a real draft, ran the compliance gate, persisted DB rows correctly. Total milestone spend: <1¢.
 
 Major moving parts now in place:
@@ -162,31 +164,31 @@ Major moving parts now in place:
 - 4 new Eloquent models, 5 new tables, 2 new configs
 - `ANTHROPIC_API_KEY_CRM` env naming to avoid shell-export shadowing
 
-**Next:** Phase 4a milestone 3 — Filament UI. `OutreachTemplateResource`, `AiDraftResource` review queue, "Draft with AI" button on Person page, bulk-draft action, AI Ops admin page (spend, kill switch, blocked count). Per-template autonomous-enable toggle is admin-only with confirmation. No new external dependencies; pure Filament work.
+**Next:** Phase 4a milestone 4 — autonomous trigger wiring. Hook the 7 v1 triggers (lead_created, deposit_first, challenge_purchased, course_purchased, dormant_14d, dormant_30d, large_withdrawal) to dispatch `OutreachOrchestrator::autonomousSend()`. Build the `DetectDormantClientsJob` daily cron. Add the `post_event` and `pause_autonomous` CRM endpoints (so Henry's MCP shim can grow those tools). Wire `TelegramNotifier` into compliance-blocked + cost-cap-hit events. Werner + Henry will want to walk through trigger-by-trigger before any of them ship `autonomous_enabled = true`.
 
 ---
 
 ## Next Session — First Task
 
-**Phase 4a milestone 3 — Filament UI for AI outreach.**
+**Phase 4a milestone 4 — autonomous trigger wiring + Henry MCP additions.**
 
-Milestone 2 (AI outreach engine) shipped 2026-05-07 with a live end-to-end demo. The data model + services + orchestrator are all in place and tested (265 passing). Now wire the UI so Werner / agents can actually use it from the admin.
+Milestone 3 (Filament UI) shipped 2026-05-07. AI Templates page, AI Drafts review queue, "Draft with AI" button on Person, bulk-draft action, AI Ops dashboard with kill switch — all live and 273 tests passing.
 
 Before writing code:
-1. Re-read `Docs/PHASE_4A_PLAN.md` §7 (Filament UI section)
-2. Check existing Filament conventions — look at `EmailTemplateResource` and `EmailCampaignResource` for the closest analogue patterns
-3. Werner reviews `config/outreach_compliance.php` banned phrases / soft rules before any of this ships — currently sensible defaults, but worth a regulator-eye pass
+1. Re-read `Docs/PHASE_4A_PLAN.md` §6 (trigger inventory) and §7 (compliance + cost guard interaction with autonomous mode)
+2. Werner walks the compliance phrase list one more time (`config/outreach_compliance.php`) — once autonomous fires, regret-loop is much shorter
+3. Werner + Henry agree on which 1–2 triggers to enable FIRST as a careful rollout (lead_created and large_withdrawal are good candidates: low volume, easy to audit)
 
 Work to do in roughly this order:
-1. **`OutreachTemplateResource`** — admin CRUD, with the autonomous-enable toggle behind a confirmation modal (warns "this template will fire autonomously on event X"). Test-send button (generates a draft for a chosen person without sending).
-2. **`AiDraftResource`** — review queue. Filter by mode (REVIEWED / BULK_REVIEWED / AUTONOMOUS), status (pending_review etc.), template, person. Inline "edit + approve + send" / "reject" actions. Show compliance flags inline.
-3. **"Draft with AI" button** on Person WhatsApp composer — opens drawer with generated draft + edit field + compliance flags display. "Send" goes through the existing `MessageSender`.
-4. **Bulk action on PersonResource list** — agent selects rows, picks a template, system queues drafts via `OutreachOrchestrator::bulkReviewedDrafts()`, redirects to the review queue.
-5. **AI Ops admin page** at `/admin/ai-ops` — spend today / MTD / soft cap / hard cap progress bars; autonomous sends today by template; blocked-by-compliance count; Henry status (reuse `HenryStatusWidget` logic); single big "Pause autonomous sends" button with confirmation.
+1. **`OutreachOrchestrator::autonomousSend()`** — the missing public method. Calls draft → compliance → if passed, dispatches send via MessageSender → logs an Activity row. Records on `triggered_by_event`. CostCeilingGuard pauses fire here, not at the dispatch site.
+2. **Trigger event listeners** — wire 7 of the 9 events to autonomousSend(). Use the existing `LargeWithdrawalReceived` + `DepositReceived` + `LeadCreated`. Add `ChallengePurchased`, `CoursePurchased` events. Skip `challenge_passed` / `challenge_failed` — those need Phase 4.5 equity-stream work.
+3. **`DetectDormantClientsJob`** — daily cron (09:00 SAST). Finds clients matching `dormant_14d` and `dormant_30d` by metric, dispatches autonomousSend per person.
+4. **Henry-side endpoints + MCP tools** — `POST /api/henry/events` (Henry can log events into Activity), `POST /api/henry/actions/pause-autonomous` (Henry can flip the kill switch on his own observations). Then add `post_event` and `pause_autonomous` to the MCP shim.
+5. **Telegram alerts** — wire `TelegramNotifier` into: compliance-blocked autonomous send, cost-cap soft hit, cost-cap hard hit, MTR sync failure (the existing `Log::error` paths). Henry already gets the news via memory dreaming, but synchronous Telegram is the immediate channel.
 
-Demo end of milestone 3: agent clicks "Draft with AI" on a real person → reviews flags → edits text → sends. Bulk action drafts re-engagement messages for 3 dormant clients → admin reviews and approves all three from the queue.
+Demo end of milestone 4: enable `lead_created` template autonomously, create a synthetic LEAD via Tinker, watch a real WhatsApp draft fire end-to-end (no actual send while WA_FEATURE_ENABLED=false, but the full pipeline runs). Henry gets a Telegram saying "1 autonomous send fired, compliance passed, cost X¢".
 
-Do NOT start coding until Werner explicitly says go — sit down with the plan first and ask any clarifying questions.
+Do NOT start coding until Werner explicitly says go.
 
 ---
 

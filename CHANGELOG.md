@@ -62,17 +62,31 @@ End-to-end reviewed-mode AI outreach engine works against the real Anthropic API
 - 265 tests passing (was 195 at the start of Phase 4a; +70 across all of milestone 1 + 2)
 - Live demo against real Anthropic API: real draft generated, compliance check landed, DB rows persisted, ai_usage_log incremented
 
-### Next — Phase 4a milestone 3
+### Phase 4a milestone 3 — COMPLETE ✅ (2026-05-07)
 
-Filament UI for AI outreach:
+Filament UI for AI outreach. Werner / agents can now use the engine through the admin: configure templates, click "Draft with AI" on a person, review and approve generated drafts, run bulk-draft on a filtered list, monitor spend + kill switch on the AI Ops page.
 
-- `OutreachTemplateResource` (admin CRUD, autonomous-enable toggle with confirmation)
-- `AiDraftResource` (review queue: inline edit + approve/send + reject)
-- "Draft with AI" button in the Person WhatsApp composer
-- Bulk-draft action on filtered Person list
-- AI Ops admin page (spend today/MTD, soft/hard cap progress, kill switch button, autonomous send count, blocked-by-compliance count, Henry status reused from milestone 1)
+Shipped (one commit, `fc5f8e1`):
 
-The autonomous-trigger wiring + the inbound auto-response confidence routing land in milestone 4. Werner reviews the compliance phrase list before milestone 3 ships (it's currently a sensible default but worth a regulator-eye pass).
+- **`OutreachTemplateResource`** — admin-only CRUD. Trigger event picker (9 events; `challenge_passed` + `challenge_failed` flagged as Phase 4.5). Autonomous toggle defaults false on create; edit page warns prominently (persistent notification) when flipped on. Test-draft action runs the orchestrator without sending.
+- **`AiDraftResource`** — review queue, defaults to `pending_review` filter. Non-admins see only their own / their owned-clients' drafts. Inline edit form locks down everything except `final_text`. Per-row Approve & send action routes through `MessageSender` (no-op while `WA_FEATURE_ENABLED=false`). Reject + bulk reject. Compliance flags rendered with severity colour-coding.
+- **Person page action** — "Draft with AI" button next to Send WhatsApp. Picks an active template, runs orchestrator, redirects to the new draft.
+- **Person list bulk action** — "Draft AI message for selected" runs `OutreachOrchestrator::bulkReviewedDrafts`, reports per-batch summary.
+- **`AiOpsPage`** at `/admin/ai-ops` — super-admin only. State banner (Proceed / PauseAutonomous / PauseAll). Soft + hard cap progress bars. Activity cards (autonomous today, blocked today + month, pending review, autonomous templates count). Spend-by-model table. Header action toggles the kill switch with confirmation.
+
+Verification: 8 new Pest smoke tests (page loads + super-admin gating), full suite 273 passing (was 265).
+
+### Next — Phase 4a milestone 4
+
+Autonomous trigger wiring + Henry MCP additions:
+
+- `OutreachOrchestrator::autonomousSend()` — the missing public method (drafts → compliance → if passed, dispatches send + logs Activity).
+- Wire 7 of the 9 triggers (excluding the two Phase 4.5 ones). New events `LeadCreated`, `ChallengePurchased`, `CoursePurchased` where they don't already exist.
+- `DetectDormantClientsJob` daily cron (09:00 SAST) for `dormant_14d` and `dormant_30d`.
+- New CRM endpoints `POST /api/henry/events` and `POST /api/henry/actions/pause-autonomous`. Add matching `post_event` + `pause_autonomous` tools to the MCP shim.
+- Wire `TelegramNotifier` into compliance-blocked autonomous sends, cost-cap soft/hard hits, MTR sync failures.
+
+Werner + Henry to walk through trigger-by-trigger before any are flipped to `autonomous_enabled = true`. Likely first autonomous triggers: `lead_created` and `large_withdrawal` (low volume, easy to audit).
 
 ---
 
