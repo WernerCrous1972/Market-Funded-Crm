@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Filament\Resources\PersonResource\Pages;
 
 use App\Exceptions\TemplateRequiredException;
+use App\Filament\Resources\AiDraftResource;
 use App\Filament\Resources\PersonResource;
 use App\Filament\Widgets\PersonDepositChartWidget;
 use App\Jobs\Metrics\RefreshPersonMetricsJob;
 use App\Models\Activity;
 use App\Models\Note;
+use App\Models\OutreachTemplate;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\WhatsAppTemplate;
+use App\Services\AI\AiOrchestratorException;
+use App\Services\AI\OutreachOrchestrator;
 use App\Services\WhatsApp\MessageSender;
 use App\Services\WhatsApp\ServiceWindowTracker;
 use Filament\Actions;
@@ -267,6 +271,90 @@ class ViewPerson extends ViewRecord
                         Notification::make()
                             ->title('Template required')
                             ->body('Outside the 24-hour service window. Please select a template.')
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            // ── AI: draft a WhatsApp via the outreach engine ───────────────────
+            // Generates a draft using the chosen OutreachTemplate, runs it
+            // through the compliance gate, persists an ai_drafts row, and
+            // redirects the agent to the review queue. Does NOT send.
+            Actions\Action::make('draftWithAi')
+                ->label('Draft with AI')
+                ->icon('heroicon-o-sparkles')
+                ->color('warning')
+                ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_send_whatsapp)
+                ->form(function (): array {
+                    $templates = OutreachTemplate::where('is_active', true)
+                        ->where('channel', 'WHATSAPP')
+                        ->orderBy('name')
+                        ->pluck('name', 'id')
+                        ->toArray();
+
+                    if (empty($templates)) {
+                        return [
+                            Forms\Components\Placeholder::make('no_templates_notice')
+                                ->label('')
+                                ->content('No active WhatsApp outreach templates configured. Add one under "AI Templates" first.'),
+                        ];
+                    }
+
+                    return [
+                        Forms\Components\Select::make('template_id')
+                            ->label('Template')
+                            ->options($templates)
+                            ->required()
+                            ->helperText('Picks the system prompt + tone the AI uses to draft.'),
+                        Forms\Components\Textarea::make('extra_context')
+                            ->label('Extra context (optional)')
+                            ->rows(3)
+                            ->helperText('Any extra info the AI should know — e.g. "client just called, asking about challenge phase 2".'),
+                    ];
+                })
+                ->action(function (array $data): void {
+                    $person   = $this->getRecord();
+                    $template = OutreachTemplate::find($data['template_id'] ?? null);
+
+                    if (! $template) {
+                        Notification::make()
+                            ->title('Template not found')
+                            ->danger()
+                            ->send();
+                        return;
+                    }
+
+                    $extra = ! empty($data['extra_context'])
+                        ? ['agent_notes' => $data['extra_context']]
+                        : [];
+
+                    try {
+                        $orch  = app(OutreachOrchestrator::class);
+                        $draft = $orch->reviewedDraft($person, $template, auth()->user(), $extra);
+
+                        $check  = $draft->complianceCheck;
+                        $title  = 'Draft created';
+                        $body   = $check?->passed
+                            ? 'Compliance passed. Open the draft to review and send.'
+                            : 'Compliance BLOCKED — review flags before any further action.';
+
+                        Notification::make()
+                            ->title($title)
+                            ->body($body)
+                            ->success()
+                            ->send();
+
+                        $this->redirect(AiDraftResource::getUrl('edit', ['record' => $draft->id]));
+                    } catch (AiOrchestratorException $e) {
+                        Notification::make()
+                            ->title('AI calls paused')
+                            ->body($e->getMessage())
+                            ->warning()
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->title('Draft failed')
+                            ->body($e->getMessage())
                             ->danger()
                             ->send();
                     }

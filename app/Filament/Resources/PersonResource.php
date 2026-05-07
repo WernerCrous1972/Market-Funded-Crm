@@ -7,10 +7,13 @@ namespace App\Filament\Resources;
 use App\Exceptions\TemplateRequiredException;
 use App\Filament\Resources\PersonResource\Pages;
 use App\Helpers\CountryHelper;
+use App\Models\OutreachTemplate;
 use App\Models\Person;
 use App\Models\PersonMetric;
 use App\Models\User;
 use App\Models\WhatsAppTemplate;
+use App\Services\AI\AiOrchestratorException;
+use App\Services\AI\OutreachOrchestrator;
 use App\Services\Health\HealthScorer;
 use App\Services\WhatsApp\MessageSender;
 use App\Services\WhatsApp\ServiceWindowTracker;
@@ -244,7 +247,76 @@ class PersonResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
             ])
-            ->bulkActions([]);
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\BulkAction::make('bulk_ai_draft')
+                        ->label('Draft AI message for selected')
+                        ->icon('heroicon-o-sparkles')
+                        ->color('warning')
+                        ->visible(fn () => auth()->user()?->is_super_admin || auth()->user()?->can_send_whatsapp)
+                        ->form(function (): array {
+                            $templates = OutreachTemplate::where('is_active', true)
+                                ->where('channel', 'WHATSAPP')
+                                ->orderBy('name')
+                                ->pluck('name', 'id')
+                                ->toArray();
+
+                            if (empty($templates)) {
+                                return [
+                                    Forms\Components\Placeholder::make('no_templates_notice')
+                                        ->label('')
+                                        ->content('No active WhatsApp outreach templates configured. Add one under "AI Templates" first.'),
+                                ];
+                            }
+
+                            return [
+                                Forms\Components\Select::make('template_id')
+                                    ->label('Template')
+                                    ->options($templates)
+                                    ->required(),
+                                Forms\Components\Textarea::make('extra_context')
+                                    ->label('Extra context (optional)')
+                                    ->rows(2),
+                            ];
+                        })
+                        ->action(function (\Illuminate\Database\Eloquent\Collection $records, array $data): void {
+                            $template = OutreachTemplate::find($data['template_id'] ?? null);
+                            if (! $template) {
+                                Notification::make()->title('Template not found')->danger()->send();
+                                return;
+                            }
+                            $extra = ! empty($data['extra_context'])
+                                ? ['agent_notes' => $data['extra_context']]
+                                : [];
+
+                            try {
+                                $orch   = app(OutreachOrchestrator::class);
+                                $drafts = $orch->bulkReviewedDrafts($records, $template, auth()->user(), $extra);
+
+                                $passed  = $drafts->filter(fn ($d) => $d->complianceCheck?->passed)->count();
+                                $blocked = $drafts->count() - $passed;
+
+                                Notification::make()
+                                    ->title("Drafted {$drafts->count()} of {$records->count()} messages")
+                                    ->body("Compliance: {$passed} passed, {$blocked} blocked. Review in AI Drafts queue.")
+                                    ->success()
+                                    ->send();
+                            } catch (AiOrchestratorException $e) {
+                                Notification::make()
+                                    ->title('AI calls paused')
+                                    ->body($e->getMessage())
+                                    ->warning()
+                                    ->send();
+                            } catch (\Throwable $e) {
+                                Notification::make()
+                                    ->title('Bulk draft failed')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
+                ]),
+            ]);
     }
 
     // ── Infolist (detail view) ────────────────────────────────────────────────
