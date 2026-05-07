@@ -6,9 +6,12 @@ namespace App\Services\AI;
 
 use App\Models\Activity;
 use App\Models\AiDraft;
+use App\Models\OutreachInboundMessage;
 use App\Models\OutreachTemplate;
 use App\Models\Person;
 use App\Models\User;
+use App\Models\WhatsAppMessage;
+use App\Services\Inbound\InboundClassification;
 use App\Services\Notifications\TelegramNotifier;
 use App\Services\WhatsApp\MessageSender;
 use Illuminate\Support\Collection;
@@ -39,6 +42,9 @@ use Illuminate\Support\Facades\Log;
  */
 class OutreachOrchestrator
 {
+    private ?OutreachTemplate $cachedAutoReplyTemplate = null;
+    private bool $autoReplyTemplateResolved = false;
+
     public function __construct(
         private readonly DraftService $drafts,
         private readonly ComplianceAgent $compliance,
@@ -267,6 +273,243 @@ class OutreachOrchestrator
         }
 
         return $draft;
+    }
+
+    /**
+     * Inbound auto-reply path. Caller (RouteToAgentListener) has already run
+     * the classifier and decided this reply is "safe + confident enough" to
+     * answer with AI. We:
+     *
+     *   1. Cost-cap check  — skip to escalation if AI work is paused
+     *   2. Draft a reply via the system inbound auto-reply template
+     *   3. Compliance gate
+     *   4. If passed: dispatch via MessageSender + Activity log + status=sent
+     *      If blocked: leave status=blocked_compliance, fall through to
+     *      escalation so the client still gets a response
+     *   5. Persist outreach_inbound_messages row tying it all together
+     *
+     * Returns the OutreachInboundMessage row.
+     */
+    public function inboundAutoReply(
+        Person $person,
+        WhatsAppMessage $inboundMessage,
+        InboundClassification $classification,
+    ): OutreachInboundMessage {
+        // Cost guard — autonomous-class call. If paused, fall through to
+        // escalation so the client still gets the holding reply.
+        if (! $this->guard->allowsAutonomous()) {
+            return $this->inboundEscalation($person, $inboundMessage, $classification);
+        }
+
+        $template = $this->autoReplyTemplate();
+        if (! $template) {
+            // Misconfiguration — system template wasn't seeded. Fail safe
+            // by escalating so the client doesn't sit in silence.
+            Log::error('OutreachOrchestrator::inboundAutoReply: system inbound template missing', [
+                'expected_name' => config('outreach_inbound.auto_reply_template_name'),
+            ]);
+            return $this->inboundEscalation($person, $inboundMessage, $classification);
+        }
+
+        try {
+            $draft = $this->drafts->draft(
+                $person,
+                $template,
+                mode: AiDraft::MODE_AUTONOMOUS,
+                extraContext: [
+                    'inbound_message_text' => $inboundMessage->body_text ?? '',
+                    'classified_intent'    => $classification->intent,
+                    'classified_confidence' => $classification->confidence,
+                ],
+                triggeredByEvent: 'inbound_reply',
+            );
+            $this->compliance->check($draft, pipelineHint: $this->pipelineFor($person));
+            $draft->refresh();
+        } catch (\Throwable $e) {
+            Log::error('OutreachOrchestrator::inboundAutoReply: draft pipeline error', [
+                'person_id' => $person->id,
+                'inbound_message_id' => $inboundMessage->id,
+                'error' => $e->getMessage(),
+            ]);
+            $this->telegram->notify(
+                "Inbound auto-reply pipeline error for {$person->email}: " . $e->getMessage(),
+                'alert',
+            );
+            return $this->inboundEscalation($person, $inboundMessage, $classification);
+        }
+
+        // Compliance blocked → fall through to escalation. The client still
+        // needs a response; the holding message is safe.
+        if ($draft->status === AiDraft::STATUS_BLOCKED_COMPLIANCE) {
+            Log::warning('OutreachOrchestrator::inboundAutoReply: AI reply blocked by compliance, escalating', [
+                'draft_id' => $draft->id,
+                'person_id' => $person->id,
+            ]);
+            return $this->inboundEscalation($person, $inboundMessage, $classification, blockedDraft: $draft);
+        }
+
+        // Compliance passed → send the AI reply
+        try {
+            $finalText = $draft->draft_text;
+            $draft->final_text = $finalText;
+            $draft->status     = AiDraft::STATUS_APPROVED;
+            $draft->save();
+
+            $this->messageSender->send(
+                person:     $person,
+                body:       $finalText,
+                sentByUser: null,
+            );
+
+            $draft->status  = AiDraft::STATUS_SENT;
+            $draft->sent_at = now();
+            $draft->save();
+
+            $this->logActivity(
+                $person,
+                'WHATSAPP_SENT',
+                "Inbound AI auto-reply sent (intent: {$classification->intent}, confidence: {$classification->confidence})",
+                [
+                    'draft_id'   => $draft->id,
+                    'inbound_message_id' => $inboundMessage->id,
+                    'intent'     => $classification->intent,
+                    'confidence' => $classification->confidence,
+                    'cost_cents' => $draft->cost_cents,
+                ],
+            );
+        } catch (\Throwable $e) {
+            $draft->status = AiDraft::STATUS_FAILED;
+            $draft->save();
+            Log::error('OutreachOrchestrator::inboundAutoReply: dispatch failed', [
+                'draft_id' => $draft->id,
+                'error'    => $e->getMessage(),
+            ]);
+            $this->telegram->notify(
+                "Inbound auto-reply DISPATCH FAILED for {$person->email}: " . $e->getMessage(),
+                'alert',
+            );
+            return $this->inboundEscalation($person, $inboundMessage, $classification);
+        }
+
+        return OutreachInboundMessage::create([
+            'whatsapp_message_id' => $inboundMessage->id,
+            'person_id'           => $person->id,
+            'intent'              => $classification->intent,
+            'confidence'          => $classification->confidence,
+            'routing'             => OutreachInboundMessage::ROUTING_AUTO_REPLIED,
+            'auto_reply_draft_id' => $draft->id,
+            'assigned_to_user_id' => null,
+            'created_at'          => now(),
+        ]);
+    }
+
+    /**
+     * Inbound escalation path. Sends a short, pre-written holding message to
+     * the client (via MessageSender → no-op while WA is disabled), then fires
+     * a Telegram alert to the assigned account manager OR Henry if no manager
+     * is set. Persists the routing decision.
+     *
+     * `$blockedDraft` is set when this path is reached because an AI auto-
+     * reply was generated but blocked by compliance — it still gets linked
+     * to the inbound row so we can audit the chain.
+     */
+    public function inboundEscalation(
+        Person $person,
+        WhatsAppMessage $inboundMessage,
+        InboundClassification $classification,
+        ?AiDraft $blockedDraft = null,
+    ): OutreachInboundMessage {
+        // Pick holding message by intent
+        $holdingText = (string) (
+            config("outreach_inbound.holding_messages.{$classification->intent}")
+            ?? config('outreach_inbound.holding_messages.default')
+            ?? 'Thanks for your message — we will get back to you shortly.'
+        );
+
+        // Send the holding message. Failures are logged but don't stop the
+        // escalation alert — a missed holding reply is better than no human
+        // ever seeing the inbound.
+        try {
+            $this->messageSender->send(
+                person:     $person,
+                body:       $holdingText,
+                sentByUser: null,
+            );
+            $this->logActivity(
+                $person,
+                'WHATSAPP_SENT',
+                "Inbound holding reply sent (intent: {$classification->intent}, confidence: {$classification->confidence})",
+                [
+                    'inbound_message_id' => $inboundMessage->id,
+                    'intent'             => $classification->intent,
+                    'confidence'         => $classification->confidence,
+                    'holding_message'    => $holdingText,
+                    'auto_reply_blocked' => $blockedDraft !== null,
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('OutreachOrchestrator::inboundEscalation: holding reply dispatch failed (continuing to alert)', [
+                'person_id' => $person->id,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+
+        // Decide routing target: assigned manager > Henry
+        $assignedUserId = $person->account_manager_user_id ?? null;
+        $routing = $assignedUserId
+            ? OutreachInboundMessage::ROUTING_ESCALATED_TO_AGENT
+            : OutreachInboundMessage::ROUTING_ESCALATED_TO_HENRY;
+
+        // Telegram alert. Includes original message + which intent/confidence
+        // triggered the escalation + assignee.
+        $assigneeLabel = $assignedUserId
+            ? ($person->accountManager?->name ?? "user {$assignedUserId}")
+            : 'Henry (no assigned manager)';
+
+        $personName = trim("{$person->first_name} {$person->last_name}") ?: $person->email ?: $person->id;
+        $excerpt    = mb_substr((string) ($inboundMessage->body_text ?? ''), 0, 200);
+
+        $alertLines = [
+            "Inbound escalated to: {$assigneeLabel}",
+            "From: {$personName}",
+            "Intent: {$classification->intent} ({$classification->confidence}%)",
+            "Message: {$excerpt}",
+            "Holding reply sent: yes",
+        ];
+        if ($blockedDraft) {
+            $alertLines[] = "Note: AI auto-reply was generated but BLOCKED by compliance (draft {$blockedDraft->id}).";
+        }
+
+        $this->telegram->notify(implode("\n", $alertLines), 'warning');
+
+        return OutreachInboundMessage::create([
+            'whatsapp_message_id' => $inboundMessage->id,
+            'person_id'           => $person->id,
+            'intent'              => $classification->intent,
+            'confidence'          => $classification->confidence,
+            'routing'             => $routing,
+            'auto_reply_draft_id' => $blockedDraft?->id,
+            'assigned_to_user_id' => $assignedUserId,
+            'created_at'          => now(),
+        ]);
+    }
+
+    /**
+     * Look up the seeded system inbound auto-reply template by name. Cached
+     * per request so we don't re-query on every reply.
+     */
+    private function autoReplyTemplate(): ?OutreachTemplate
+    {
+        if ($this->autoReplyTemplateResolved) {
+            return $this->cachedAutoReplyTemplate;
+        }
+        $this->autoReplyTemplateResolved = true;
+        $name = (string) config('outreach_inbound.auto_reply_template_name');
+        $this->cachedAutoReplyTemplate = OutreachTemplate::query()
+            ->where('name', $name)
+            ->where('is_active', true)
+            ->first();
+        return $this->cachedAutoReplyTemplate;
     }
 
     /**

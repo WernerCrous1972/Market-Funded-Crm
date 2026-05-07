@@ -7,11 +7,9 @@ namespace App\Providers;
 use App\Events\LargeWithdrawalReceived;
 use App\Events\LeadConverted;
 use App\Events\LeadCreated;
-use App\Events\WhatsApp\WhatsAppMessageReceived;
 use App\Listeners\AI\OnDepositFirst;
 use App\Listeners\AI\OnLargeWithdrawal;
 use App\Listeners\AI\OnLeadCreated;
-use App\Listeners\WhatsApp\RouteToAgentListener;
 use App\Models\Person;
 use App\Models\User;
 use App\Observers\PersonObserver;
@@ -51,7 +49,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Event::listen(WhatsAppMessageReceived::class, RouteToAgentListener::class);
+        // RouteToAgentListener is auto-discovered by Laravel via the typed
+        // handle(WhatsAppMessageReceived) signature — do NOT register it
+        // explicitly here, that would double-fire on every inbound.
 
         // ── Phase 4a milestone 4: autonomous outreach triggers ───────────────
         // Each listener inspects the event's person, looks up matching

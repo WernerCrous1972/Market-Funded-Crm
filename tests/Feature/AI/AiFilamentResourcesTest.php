@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use App\Filament\Pages\AiOpsPage;
 use App\Filament\Resources\AiDraftResource;
+use App\Filament\Resources\OutreachInboundMessageResource;
 use App\Filament\Resources\OutreachTemplateResource;
+use App\Models\OutreachInboundMessage;
+use App\Models\WhatsAppMessage;
 use App\Models\AiDraft;
 use App\Models\OutreachTemplate;
 use App\Models\Person;
@@ -101,6 +104,33 @@ describe('AI outreach Filament resources smoke tests', function () {
 
         $this->get(OutreachTemplateResource::getUrl('index'))
             ->assertForbidden();
+    });
+
+    it('inbound messages index page loads without error', function () {
+        $this->get(OutreachInboundMessageResource::getUrl('index'))
+            ->assertOk();
+    });
+
+    it('inbound messages index renders rows when present', function () {
+        $person = Person::factory()->create();
+        $msg = WhatsAppMessage::create([
+            'person_id'     => $person->id,
+            'direction'     => 'INBOUND',
+            'wa_message_id' => 'wamid.test_smoke',
+            'body_text'     => 'thanks!',
+            'status'        => 'RECEIVED',
+        ]);
+        OutreachInboundMessage::create([
+            'whatsapp_message_id' => $msg->id,
+            'person_id'           => $person->id,
+            'intent'              => 'acknowledgment',
+            'confidence'          => 90,
+            'routing'             => OutreachInboundMessage::ROUTING_AUTO_REPLIED,
+            'created_at'          => now(),
+        ]);
+
+        $this->get(OutreachInboundMessageResource::getUrl('index'))
+            ->assertOk();
     });
 
 });
