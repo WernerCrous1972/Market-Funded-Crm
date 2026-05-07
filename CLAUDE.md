@@ -151,6 +151,8 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Live demo passed: notifier sent `[MFU CRM]` Telegram to Werner — landed on phone. Caught + fixed a Guzzle URL-resolution bug (bot token colon broke `base_uri`).
 - Earlier in the same calendar day: Financial Summary inflation bug found + fixed (`e2629a4`); Grace + Derick smoke test (10-check matrix) passed; ufw + deploy.sh.local-backup cleanup.
 
+**Phase 4a milestone 4 — COMPLETE ✅** (2026-05-07). Autonomous trigger pipeline wired end-to-end. Live demo with a synthetic lead ran the full path through real Anthropic and persisted the Activity row + sent_at timestamp. CRITICAL: every template still ships with `autonomous_enabled = false`. Werner + Henry decide trigger-by-trigger when to flip the switch.
+
 **Phase 4a milestone 3 — COMPLETE ✅** (2026-05-07). Filament UI shipped for the AI outreach engine. Werner / agents can now use the system through the admin: configure templates, click "Draft with AI" on a person, review and approve generated drafts, run bulk-draft on a filtered list, monitor spend + kill switch on the AI Ops page.
 
 **Phase 4a milestone 2 — COMPLETE ✅** (2026-05-07). End-to-end reviewed-mode AI outreach engine works against real Anthropic. Live demo on a real CLIENT generated a real draft, ran the compliance gate, persisted DB rows correctly. Total milestone spend: <1¢.
@@ -164,29 +166,35 @@ Major moving parts now in place:
 - 4 new Eloquent models, 5 new tables, 2 new configs
 - `ANTHROPIC_API_KEY_CRM` env naming to avoid shell-export shadowing
 
-**Next:** Phase 4a milestone 4 — autonomous trigger wiring. Hook the 7 v1 triggers (lead_created, deposit_first, challenge_purchased, course_purchased, dormant_14d, dormant_30d, large_withdrawal) to dispatch `OutreachOrchestrator::autonomousSend()`. Build the `DetectDormantClientsJob` daily cron. Add the `post_event` and `pause_autonomous` CRM endpoints (so Henry's MCP shim can grow those tools). Wire `TelegramNotifier` into compliance-blocked + cost-cap-hit events. Werner + Henry will want to walk through trigger-by-trigger before any of them ship `autonomous_enabled = true`.
+**Next:** Phase 4a milestone 5 — inbound reply auto-response with confidence-based routing. When a client replies to an AI-sent WhatsApp, classify intent + confidence (Haiku), auto-respond when confident on safe intents, escalate to the assigned account manager OR Henry on lower confidence / sensitive intents. Replaces the existing `RouteToAgentListener` stub. The `outreach_inbound_messages` table is already migrated and ready.
 
 ---
 
 ## Next Session — First Task
 
-**Phase 4a milestone 4 — autonomous trigger wiring + Henry MCP additions.**
+**Phase 4a milestone 5 — inbound reply auto-response with confidence-based routing.** This is the LAST milestone of Phase 4a.
 
-Milestone 3 (Filament UI) shipped 2026-05-07. AI Templates page, AI Drafts review queue, "Draft with AI" button on Person, bulk-draft action, AI Ops dashboard with kill switch — all live and 273 tests passing.
+Milestone 4 shipped 2026-05-07. Autonomous outbound triggers are wired but inactive (every template ships with `autonomous_enabled = false`). 299 tests passing. Now the inbound side.
 
 Before writing code:
-1. Re-read `Docs/PHASE_4A_PLAN.md` §6 (trigger inventory) and §7 (compliance + cost guard interaction with autonomous mode)
-2. Werner walks the compliance phrase list one more time (`config/outreach_compliance.php`) — once autonomous fires, regret-loop is much shorter
-3. Werner + Henry agree on which 1–2 triggers to enable FIRST as a careful rollout (lead_created and large_withdrawal are good candidates: low volume, easy to audit)
+1. Re-read `Docs/PHASE_4A_PLAN.md` §5.6 (InboundClassifier sketch) and the inbound flow notes in §3
+2. Look at `app/Listeners/WhatsApp/RouteToAgentListener.php` (currently a stub) — that's what milestone 5 replaces
+3. Confirm the `outreach_inbound_messages` table looks right against the design (should already be migrated)
 
 Work to do in roughly this order:
-1. **`OutreachOrchestrator::autonomousSend()`** — the missing public method. Calls draft → compliance → if passed, dispatches send via MessageSender → logs an Activity row. Records on `triggered_by_event`. CostCeilingGuard pauses fire here, not at the dispatch site.
-2. **Trigger event listeners** — wire 7 of the 9 events to autonomousSend(). Use the existing `LargeWithdrawalReceived` + `DepositReceived` + `LeadCreated`. Add `ChallengePurchased`, `CoursePurchased` events. Skip `challenge_passed` / `challenge_failed` — those need Phase 4.5 equity-stream work.
-3. **`DetectDormantClientsJob`** — daily cron (09:00 SAST). Finds clients matching `dormant_14d` and `dormant_30d` by metric, dispatches autonomousSend per person.
-4. **Henry-side endpoints + MCP tools** — `POST /api/henry/events` (Henry can log events into Activity), `POST /api/henry/actions/pause-autonomous` (Henry can flip the kill switch on his own observations). Then add `post_event` and `pause_autonomous` to the MCP shim.
-5. **Telegram alerts** — wire `TelegramNotifier` into: compliance-blocked autonomous send, cost-cap soft hit, cost-cap hard hit, MTR sync failure (the existing `Log::error` paths). Henry already gets the news via memory dreaming, but synchronous Telegram is the immediate channel.
+1. **`InboundClassifier`** in `app/Services/AI/InboundClassifier.php` — calls `inbound_classify` task on Haiku, returns `{intent, confidence}` (0-100). Defensive JSON parsing like ComplianceAgent.
+2. **Replace `RouteToAgentListener`** stub:
+   - On WhatsApp inbound → run classifier
+   - If confidence ≥ threshold AND intent in safe list (`acknowledgment`, `simple_question`): draft auto-reply using a system "auto-reply" prompt → compliance → send (mini autonomous loop)
+   - Else: persist routing decision (`escalated_to_agent` if assigned manager exists, else `escalated_to_henry`) → Telegram alert with the message text + suggested response
+   - Always write `outreach_inbound_messages` row to record the classification + routing
+3. **Filament additions** (small):
+   - Inbound row in AiDraftResource if confidence_threshold inbox auto-reply created a draft
+   - Surface `outreach_inbound_messages` somewhere — maybe a small panel in AI Ops or a new resource. Keep simple.
 
-Demo end of milestone 4: enable `lead_created` template autonomously, create a synthetic LEAD via Tinker, watch a real WhatsApp draft fire end-to-end (no actual send while WA_FEATURE_ENABLED=false, but the full pipeline runs). Henry gets a Telegram saying "1 autonomous send fired, compliance passed, cost X¢".
+Demo end of milestone 5: simulate a WhatsApp reply on a synthetic person → classifier returns high-confidence acknowledgment → auto-reply draft + sent (no-op). Then a low-confidence reply → escalation to Henry via Telegram.
+
+After milestone 5 demo passes: open the PR for `feat/phase-4a-m1-henry` → main. That closes Phase 4a as a single mergeable unit.
 
 Do NOT start coding until Werner explicitly says go.
 

@@ -76,17 +76,51 @@ Shipped (one commit, `fc5f8e1`):
 
 Verification: 8 new Pest smoke tests (page loads + super-admin gating), full suite 273 passing (was 265).
 
-### Next — Phase 4a milestone 4
+### Phase 4a milestone 4 — COMPLETE ✅ (2026-05-07)
 
-Autonomous trigger wiring + Henry MCP additions:
+Autonomous trigger wiring shipped end-to-end. Domain events → listeners → orchestrator → draft → compliance → dispatch → Activity log → Telegram alerts. **Pipeline is "armed but inactive"** — every template ships with `autonomous_enabled = false`. No template fires autonomously until Werner + Henry explicitly flip the toggle, trigger by trigger.
 
-- `OutreachOrchestrator::autonomousSend()` — the missing public method (drafts → compliance → if passed, dispatches send + logs Activity).
-- Wire 7 of the 9 triggers (excluding the two Phase 4.5 ones). New events `LeadCreated`, `ChallengePurchased`, `CoursePurchased` where they don't already exist.
-- `DetectDormantClientsJob` daily cron (09:00 SAST) for `dormant_14d` and `dormant_30d`.
-- New CRM endpoints `POST /api/henry/events` and `POST /api/henry/actions/pause-autonomous`. Add matching `post_event` + `pause_autonomous` tools to the MCP shim.
-- Wire `TelegramNotifier` into compliance-blocked autonomous sends, cost-cap soft/hard hits, MTR sync failures.
+Live demo passed (commit `07f3901`): a synthetic LEAD inserted via Eloquent fired `LeadCreated` → `OnLeadCreated` → real Sonnet draft → real Haiku compliance check (clean, zero flags) → MessageSender no-op (WhatsApp disabled, expected) → Activity row + sent_at timestamp set. Total wire spend <0.01¢.
 
-Werner + Henry to walk through trigger-by-trigger before any are flipped to `autonomous_enabled = true`. Likely first autonomous triggers: `lead_created` and `large_withdrawal` (low volume, easy to audit).
+**Shipped (one commit):**
+
+- **`OutreachOrchestrator::autonomousSend()`** — the missing public method. Two gates (`autonomous_enabled` + cost guard) before any AI call. On compliance pass: dispatches via MessageSender + Activity log (`WHATSAPP_SENT`). On compliance block: leaves status=`blocked_compliance`, logs Activity, fires Telegram alert. On pipeline error: logs + Telegram + bails. Never throws — listeners stay resilient.
+- **3 listener wirings** (NOT ShouldQueue — inline sync to avoid breaking tests that assert `Queue::assertNothingPushed()`):
+  - `OnLeadCreated` ← `LeadCreated` (new event, dispatched by `PersonObserver` on new LEAD inserts)
+  - `OnDepositFirst` ← `LeadConverted` (existing event from LEAD → CLIENT upgrade)
+  - `OnLargeWithdrawal` ← `LargeWithdrawalReceived` (existing event)
+- **`DetectDormantClientsJob`** — daily cron at 09:00 SAST. Iterates `person_metrics` for `dormant_30d` (≥30 days) then `dormant_14d` (14-29 days, explicit max so 30+ doesn't double-fire). 30-day dedup on `(person_id, trigger_event)`. CLIENT-only.
+- **Henry write endpoints**: `POST /api/henry/events` (Henry writes Activity rows) + `POST /api/henry/actions/pause-autonomous` (Henry flips the kill switch with a reason). Both gated by the existing `HenryApiToken` middleware.
+- **MCP shim updated** to 6 tools (added `post_event` + `pause_autonomous`). Reference copy in `Docs/mcp-shim/` synced. Henry picks up the new tools next gateway reconnect.
+- **Telegram alerts** wired into:
+  - Compliance-blocked autonomous send (severity: alert)
+  - Cost soft cap crossed — once per month (severity: warning)
+  - Cost hard cap crossed — once per month (severity: critical)
+  - Autonomous dispatch failures
+
+**Verification:**
+
+- 26 new tests across `OutreachOrchestrator` (autonomousSend gates + paths), Henry write endpoints, `CostCeilingGuard` alert dedup, listener wirings + Person observer firing, `DetectDormantClientsJob` (window logic + dedup + CLIENT-only)
+- Full suite: 299 passing (was 273)
+
+**Out of scope (deferred):**
+
+- `challenge_purchased` + `course_purchased` triggers — need new detection logic in sync code to know when these transaction categories land
+- `challenge_passed` + `challenge_failed` — need MTR equity/state stream not currently synced (Phase 4.5 priority per Henry's review)
+- Inbound auto-response with confidence-based routing (milestone 5)
+
+### Next — Phase 4a milestone 5
+
+Last milestone of Phase 4a: inbound reply auto-response with confidence-based routing.
+
+When a client replies to an AI-sent WhatsApp:
+1. Classify intent + confidence via Haiku (e.g. "question / acknowledgment / unsubscribe / complaint")
+2. If confidence ≥ threshold AND intent is auto-answerable: draft a reply, run compliance, send (autonomous mini-loop)
+3. If below threshold OR sensitive intent: escalate to assigned account manager OR Henry (Telegram alert with the message + suggested response)
+4. Persist routing decision in `outreach_inbound_messages` table (already migrated)
+5. Werner / Henry can tune the confidence threshold from real data once we have any
+
+Replaces the existing `RouteToAgentListener` stub. End of Phase 4a once milestone 5 ships + the branch merges to main.
 
 ---
 
