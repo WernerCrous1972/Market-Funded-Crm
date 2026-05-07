@@ -109,18 +109,48 @@ Live demo passed (commit `07f3901`): a synthetic LEAD inserted via Eloquent fire
 - `challenge_passed` + `challenge_failed` — need MTR equity/state stream not currently synced (Phase 4.5 priority per Henry's review)
 - Inbound auto-response with confidence-based routing (milestone 5)
 
-### Next — Phase 4a milestone 5
+### Phase 4a milestone 5 — COMPLETE ✅ (2026-05-07)
 
-Last milestone of Phase 4a: inbound reply auto-response with confidence-based routing.
+Inbound reply auto-response with confidence-based routing. Closes Phase 4a as a single mergeable unit.
 
 When a client replies to an AI-sent WhatsApp:
-1. Classify intent + confidence via Haiku (e.g. "question / acknowledgment / unsubscribe / complaint")
-2. If confidence ≥ threshold AND intent is auto-answerable: draft a reply, run compliance, send (autonomous mini-loop)
-3. If below threshold OR sensitive intent: escalate to assigned account manager OR Henry (Telegram alert with the message + suggested response)
-4. Persist routing decision in `outreach_inbound_messages` table (already migrated)
-5. Werner / Henry can tune the confidence threshold from real data once we have any
+1. Haiku classifies intent + confidence into one of 7 closed-vocabulary intents (`acknowledgment`, `simple_question`, `complex_question`, `complaint`, `unsubscribe`, `sensitive_request`, `unclear`).
+2. Confidence ≥ 75 AND intent in safe list (`acknowledgment`, `simple_question`) → Sonnet drafts a personalised auto-reply through the existing compliance gate, then dispatches via `MessageSender`.
+3. Otherwise → an intent-specific holding message goes to the client immediately (so they don't sit in silence) AND a Telegram alert routes to the assigned account manager OR to Henry when no manager is set.
 
-Replaces the existing `RouteToAgentListener` stub. End of Phase 4a once milestone 5 ships + the branch merges to main.
+The auto-reply path falls through to escalation on three conditions — cost-cap paused, system template missing, compliance blocked the draft — so the client always receives a response. Blocked drafts are linked to the inbound row for audit.
+
+**Shipped (one commit, `73cb103`):**
+
+- **`InboundClassifier`** (`App\Services\Inbound\InboundClassifier`) + `InboundClassification` value object — Haiku call via `ModelRouter::call('inbound_classify')`. Defensive JSON parse strips ``` fences, coerces unknown intents to `unclear`, clamps confidence to [0,100]. Fails closed on every error path with `(unclear, 0)` so the listener escalates.
+- **`OutreachOrchestrator::inboundAutoReply()` + `inboundEscalation()`** — full draft/compliance/dispatch path and pure escalation path. Both write `outreach_inbound_messages` rows.
+- **`RouteToAgentListener`** rebuilt — replaces the original `Log::info` stub. Handles outbound-skip, empty-body-skip, AI-paused fallback (escalates without classifying), then classify → route. NOT `ShouldQueue` to match milestone 4's autonomous listeners.
+- **`OutreachInboundMessage`** model on the already-migrated table.
+- **System inbound auto-reply `OutreachTemplate`** seeded by an idempotent migration. `autonomous_enabled = true` because this template is purpose-built for the inbound pipeline and gated by the classifier rather than the per-template toggle.
+- **`OutreachInboundMessageResource`** — read-only Filament resource at `/admin/outreach-inbound-messages` with intent + confidence + routing badges. Non-admins scoped to their owned-clients' inbound only.
+- **`config/outreach_inbound.php`** — intent vocabulary, safe-list, holding messages, system template name lookup.
+
+**Bug caught + fixed during the live demo:**
+
+- **`RouteToAgentListener` was registered twice.** Once explicitly in `AppServiceProvider::boot()` (carried over from the stub days), once via Laravel 11's typed-handle event auto-discovery. Every inbound logged two Activity rows and produced two Telegram alerts. Removed the explicit registration — auto-discovery now owns it. Re-ran the demo: clean single fire on each path.
+
+**Live demo (against real Anthropic):**
+
+- Path A: "thanks for the welcome message…" → Haiku classified `acknowledgment @ 95%` → Sonnet drafted "Welcome aboard! We're glad to have you with us…" → compliance clean → dispatched (no-op, WA disabled) → Activity row + `outreach_inbound_messages.routing = auto_replied`
+- Path B: "my account was suspended yesterday and I lost three trades…" → Haiku classified `complaint @ 95%` → routed to escalation → default holding message dispatched → `routing = escalated_to_henry` → Telegram alert sent to Werner
+- Total wire spend: <0.1¢ (rounds to 0¢ in `ai_usage_log`).
+
+**Verification:**
+
+- 26 new tests: 12 `InboundClassifier` (parsing, fences, intent normalisation, confidence clamping, error paths, threshold logic) + 6 orchestrator inbound paths + 6 listener routing decisions + 2 Filament smoke. Full suite **325 passing** (was 299 at end of milestone 4).
+
+**Phase 4a is now complete.** All 5 milestones done on `feat/phase-4a-m1-henry`. Ready to open PR → main as one merge unit.
+
+**Out of scope (deferred to Phase 4.5+):**
+
+- `challenge_passed` / `challenge_failed` autonomous outbound triggers — need MTR equity/state stream not currently synced
+- WhatsApp send goes live — gated on `WA_FEATURE_ENABLED=true` once Meta approves the number + first template
+- Confidence-threshold tuning from real data — happens after Werner enables WA sending and we accumulate inbound classifications
 
 ---
 
