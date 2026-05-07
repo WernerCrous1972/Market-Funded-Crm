@@ -40,9 +40,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Registered in OpenClaw via `openclaw mcp set market-funded-crm '<json>'`**. Direct edit of `~/.openclaw/openclaw.json` is unsafe — the gateway races with external editors and overwrites within seconds (this is what produced the 60+ "clobbered" backups in late April 2026). Always use the CLI.
 - **Live demo passed:** Werner asked Henry "how is our book looking?" via Telegram → Henry called `book_metrics` → answered with real numbers (29,411 people, MTD $4,309 deposits, 634 dormant 14d+, 543 dormant 30d+). Bidirectional Henry ↔ CRM integration confirmed live.
 
-### Next — Phase 4a milestone 2 (continued)
+### Phase 4a milestone 2 — COMPLETE ✅ (2026-05-07)
 
-- AI outreach engine: migrations for the 5 new tables, `config/ai.php`, `ModelRouter` (with Sonnet 4.6 / Haiku 4.5 / external fallback chain), `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. Werner adds `ANTHROPIC_API_KEY` to `.env` at the start of this work.
+End-to-end reviewed-mode AI outreach engine works against the real Anthropic API. Live demo on 2026-05-07 produced a real draft for a real CLIENT (Bukelwa Hlasela) with Sonnet 4.6, ran the compliance gate via Haiku 4.5, persisted both `ai_drafts` and `ai_compliance_checks` rows correctly. Total spend across the milestone: <1¢.
+
+**Chunks shipped (4 commits):**
+
+- **Chunk 1** (`68f5265`) — 5 migrations + `config/ai.php` + `config/outreach_compliance.php`
+- **Chunk 2** (`3db365b`) — `ModelRouter` with failover chain, pricing-based cost computation, daily-aggregated `ai_usage_log` upserts; explicit container binding in `AppServiceProvider` to prevent Laravel auto-injecting an unconfigured Guzzle
+- **Chunk 3** (`be6624c`) — `CostCeilingGuard` (soft/hard caps, kill switch, monthly spend cache), `DraftService` (person context → ModelRouter → `ai_drafts`), `ComplianceAgent` (regex blocklist + AI self-check, fails closed on errors); 3 new Eloquent models (`OutreachTemplate`, `AiDraft`, `AiComplianceCheck`)
+- **Chunk 4** (`d6f2f2e`) — `OutreachOrchestrator` (reviewed + bulk paths) + live end-to-end demo
+
+**Live-discovery fixes:**
+
+- **`ANTHROPIC_API_KEY_CRM` shadow workaround** (`0056ee9`) — Werner has a shell-wide `ANTHROPIC_API_KEY` exported in `~/.zshrc` for OpenClaw / Claude Code work. Laravel's `env()` reads shell exports with priority over `.env`, silently shadowing the project key. Switched the variable name to `ANTHROPIC_API_KEY_CRM`; falls back to bare `ANTHROPIC_API_KEY` when not set.
+- **Container auto-injection killed `base_uri`** — Laravel's container auto-resolved the `?GuzzleClient` constructor parameter to a default-config Guzzle (no base_uri, no timeout), making every Anthropic call fail with "No host part in the URL". Fixed via explicit singleton binding in `AppServiceProvider`.
+- **ComplianceAgent severity-driven outcome** — first live run flipped a clean draft to `blocked_compliance` because the AI self-rated `passed=false` while raising only soft flags. Now `passed` derives from FLAG SEVERITY, not the AI's self-rated boolean. Hard flags block; soft flags log and pass.
+
+**Verification:**
+
+- 265 tests passing (was 195 at the start of Phase 4a; +70 across all of milestone 1 + 2)
+- Live demo against real Anthropic API: real draft generated, compliance check landed, DB rows persisted, ai_usage_log incremented
+
+### Next — Phase 4a milestone 3
+
+Filament UI for AI outreach:
+
+- `OutreachTemplateResource` (admin CRUD, autonomous-enable toggle with confirmation)
+- `AiDraftResource` (review queue: inline edit + approve/send + reject)
+- "Draft with AI" button in the Person WhatsApp composer
+- Bulk-draft action on filtered Person list
+- AI Ops admin page (spend today/MTD, soft/hard cap progress, kill switch button, autonomous send count, blocked-by-compliance count, Henry status reused from milestone 1)
+
+The autonomous-trigger wiring + the inbound auto-response confidence routing land in milestone 4. Werner reviews the compliance phrase list before milestone 3 ships (it's currently a sensible default but worth a regulator-eye pass).
 
 ---
 

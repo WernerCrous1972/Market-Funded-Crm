@@ -151,33 +151,42 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 - Live demo passed: notifier sent `[MFU CRM]` Telegram to Werner — landed on phone. Caught + fixed a Guzzle URL-resolution bug (bot token colon broke `base_uri`).
 - Earlier in the same calendar day: Financial Summary inflation bug found + fixed (`e2629a4`); Grace + Derick smoke test (10-check matrix) passed; ufw + deploy.sh.local-backup cleanup.
 
-**Phase 4a milestone 2 — first task done.** MCP shim built at `~/openclaw/mcp-servers/market-funded-crm/` (reference copy in `Docs/mcp-shim/`). Registered via `openclaw mcp set` (NOT direct file edit — the gateway races and overwrites). Live demo passed: Henry called `book_metrics` from a Telegram chat with Werner and answered with real numbers.
+**Phase 4a milestone 2 — COMPLETE ✅** (2026-05-07). End-to-end reviewed-mode AI outreach engine works against real Anthropic. Live demo on a real CLIENT generated a real draft, ran the compliance gate, persisted DB rows correctly. Total milestone spend: <1¢.
 
-**Next:** Continue milestone 2 — AI outreach engine. Migrations for 5 new tables, `config/ai.php`, `ModelRouter`, `DraftService`, `ComplianceAgent`, `OutreachOrchestrator`. Werner adds `ANTHROPIC_API_KEY` to `.env` first.
+Major moving parts now in place:
+- `ModelRouter` — per-task model lookup, failover (Sonnet → Haiku → external stub), pricing-based cost compute, daily upsert into `ai_usage_log`
+- `CostCeilingGuard` — soft $300 / hard $500 monthly caps from `ai_usage_log` sum, manual kill switch via cache
+- `DraftService` — person-context-rich prompt → `ai_drafts` (compresses prompt_full for autonomous mode)
+- `ComplianceAgent` — regex blocklist + AI self-check; severity-driven outcome (soft flags pass, hard flags block); fails closed on AI errors
+- `OutreachOrchestrator` — reviewed + bulk paths combining all the above
+- 4 new Eloquent models, 5 new tables, 2 new configs
+- `ANTHROPIC_API_KEY_CRM` env naming to avoid shell-export shadowing
+
+**Next:** Phase 4a milestone 3 — Filament UI. `OutreachTemplateResource`, `AiDraftResource` review queue, "Draft with AI" button on Person page, bulk-draft action, AI Ops admin page (spend, kill switch, blocked count). Per-template autonomous-enable toggle is admin-only with confirmation. No new external dependencies; pure Filament work.
 
 ---
 
 ## Next Session — First Task
 
-**Continue Phase 4a milestone 2 — start the AI outreach engine.**
+**Phase 4a milestone 3 — Filament UI for AI outreach.**
 
-Milestone 2 first task (the MCP shim) shipped 2026-05-06; Henry can already answer CRM questions on Telegram. Now build the actual outreach engine — the autonomous side of Phase 4a.
+Milestone 2 (AI outreach engine) shipped 2026-05-07 with a live end-to-end demo. The data model + services + orchestrator are all in place and tested (265 passing). Now wire the UI so Werner / agents can actually use it from the admin.
 
 Before writing code:
-1. Confirm `ANTHROPIC_API_KEY` is set in `.env` — if not, ask Werner to add it (he has one from earlier work)
-2. Re-read `Docs/PHASE_4A_PLAN.md` §4 (data model), §5 (services), §6 (triggers), §9 (cost ceilings)
+1. Re-read `Docs/PHASE_4A_PLAN.md` §7 (Filament UI section)
+2. Check existing Filament conventions — look at `EmailTemplateResource` and `EmailCampaignResource` for the closest analogue patterns
+3. Werner reviews `config/outreach_compliance.php` banned phrases / soft rules before any of this ships — currently sensible defaults, but worth a regulator-eye pass
 
-Order of work for milestone 2 continuation:
-1. Migrations for the five new tables (`outreach_templates`, `ai_drafts`, `ai_compliance_checks`, `ai_usage_log`, `outreach_inbound_messages`)
-2. `config/ai.php` (per-task model map, fallback chain, cost ceilings) and `config/outreach_compliance.php` (banned phrases, required disclosures)
-3. `App\Services\AI\ModelRouter` — primary + Haiku fallback (external providers stubbed)
-4. `App\Services\AI\DraftService` + `App\Services\AI\ComplianceAgent` + `App\Services\AI\CostCeilingGuard`
-5. `App\Services\AI\OutreachOrchestrator` (reviewed mode only first; autonomous wiring in milestone 4)
-6. Tests for everything above (mocked Claude responses)
+Work to do in roughly this order:
+1. **`OutreachTemplateResource`** — admin CRUD, with the autonomous-enable toggle behind a confirmation modal (warns "this template will fire autonomously on event X"). Test-send button (generates a draft for a chosen person without sending).
+2. **`AiDraftResource`** — review queue. Filter by mode (REVIEWED / BULK_REVIEWED / AUTONOMOUS), status (pending_review etc.), template, person. Inline "edit + approve + send" / "reject" actions. Show compliance flags inline.
+3. **"Draft with AI" button** on Person WhatsApp composer — opens drawer with generated draft + edit field + compliance flags display. "Send" goes through the existing `MessageSender`.
+4. **Bulk action on PersonResource list** — agent selects rows, picks a template, system queues drafts via `OutreachOrchestrator::bulkReviewedDrafts()`, redirects to the review queue.
+5. **AI Ops admin page** at `/admin/ai-ops` — spend today / MTD / soft cap / hard cap progress bars; autonomous sends today by template; blocked-by-compliance count; Henry status (reuse `HenryStatusWidget` logic); single big "Pause autonomous sends" button with confirmation.
 
-Demo for end of milestone 2: run a one-off draft via Tinker; verify `ai_drafts` row, `ai_compliance_checks` row, `ai_usage_log` cost accrual.
+Demo end of milestone 3: agent clicks "Draft with AI" on a real person → reviews flags → edits text → sends. Bulk action drafts re-engagement messages for 3 dormant clients → admin reviews and approves all three from the queue.
 
-Do NOT start until Werner says go.
+Do NOT start coding until Werner explicitly says go — sit down with the plan first and ask any clarifying questions.
 
 ---
 
