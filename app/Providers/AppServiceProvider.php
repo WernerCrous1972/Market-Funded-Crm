@@ -10,6 +10,8 @@ use App\Models\Person;
 use App\Models\User;
 use App\Observers\UserPermissionObserver;
 use App\Policies\PersonPolicy;
+use App\Services\AI\ModelRouter;
+use GuzzleHttp\Client as GuzzleClient;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -18,7 +20,16 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        // Bind ModelRouter with an explicitly-configured Guzzle client.
+        // Without this, the container auto-resolves the constructor's
+        // `?GuzzleClient` to a default Guzzle (no base_uri, no timeout)
+        // and our Anthropic calls fail with "No host part in the URL".
+        $this->app->singleton(ModelRouter::class, function ($app) {
+            return new ModelRouter(new GuzzleClient([
+                'base_uri' => rtrim((string) config('ai.anthropic.base_url'), '/'),
+                'timeout'  => (int) config('ai.anthropic.timeout', 30),
+            ]));
+        });
     }
 
     public function boot(): void
