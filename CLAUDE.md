@@ -12,6 +12,7 @@ At the start of every new session, before doing anything else, follow this proto
 
 - **This file (`CLAUDE.md`)** — for project orientation
 - **The last 5 entries of `CHANGELOG.md`** — for recent context
+- **`~/BRAIN/wiki/projects/market-funded-crm.md`** — long-term memory (architecture, decisions, debugging notes, cross-session context). Update this file when you learn something important during the session.
 
 ### 2. Read when relevant
 
