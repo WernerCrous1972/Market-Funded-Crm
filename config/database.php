@@ -97,6 +97,31 @@ return [
             'sslmode' => 'prefer',
         ],
 
+        // Mac-as-relay path: lets the local artisan invocation write into the
+        // production Postgres directly. Used by `scripts/sync_to_production.sh`
+        // while production's own droplet is blocked at the Cloudflare layer
+        // from reaching MTR. Retire this connection once the IP whitelist
+        // resolves or we move sync to a region-different VPS relay.
+        //
+        // Credentials live in .env.local-to-prod (gitignored). The wrapper
+        // script loads that file and sets DB_CONNECTION=pgsql_prod before
+        // invoking artisan, so this block is never used by web requests.
+        // sslmode=require is non-negotiable — traffic crosses the public
+        // internet.
+        'pgsql_prod' => [
+            'driver' => 'pgsql',
+            'host' => env('PROD_DB_HOST'),
+            'port' => env('PROD_DB_PORT', '5432'),
+            'database' => env('PROD_DB_DATABASE'),
+            'username' => env('PROD_DB_USERNAME'),
+            'password' => env('PROD_DB_PASSWORD'),
+            'charset' => env('PROD_DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => 'require',
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),
