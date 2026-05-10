@@ -12,7 +12,7 @@ Artisan::command('inspire', function () {
 // Gated by MTR_SYNC_ENABLED so production can disable while its IP is
 // blocked at the Cloudflare layer from reaching the MTR API. Defaults
 // true so local dev and the Mac-as-relay path keep working unchanged.
-if (env('MTR_SYNC_ENABLED', true)) {
+if (config('matchtrader.sync_enabled')) {
     Schedule::command('mtr:sync --full')
         ->dailyAt('00:05')
         ->timezone('Africa/Johannesburg')
@@ -35,7 +35,7 @@ Schedule::job(new \App\Jobs\Metrics\CalculateHealthScoresJob())
 
 // Incremental sync every 15 minutes between 06:00–22:00 SAST.
 // Same MTR_SYNC_ENABLED gate as the nightly full.
-if (env('MTR_SYNC_ENABLED', true)) {
+if (config('matchtrader.sync_enabled')) {
     Schedule::command('mtr:sync --incremental')
         ->everyFifteenMinutes()
         ->timezone('Africa/Johannesburg')

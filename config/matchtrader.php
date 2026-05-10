@@ -19,6 +19,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Sync schedule gate
+    |--------------------------------------------------------------------------
+    |
+    | Controls whether the `mtr:sync` cron schedules in routes/console.php
+    | fire on this host. Production is set to false while its IP is blocked
+    | at the Cloudflare layer from reaching the MTR API — sync runs from
+    | Werner's Mac instead, via SSH tunnel into production's Postgres
+    | (see scripts/sync_to_production.sh).
+    |
+    | Defaults true so local dev + the Mac-as-relay path keep working
+    | unchanged. Set MTR_SYNC_ENABLED=false in .env to disable.
+    |
+    | Reads through config(), not env(), so config:cache stays effective.
+    |
+    */
+
+    'sync_enabled' => filter_var(env('MTR_SYNC_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+
+    /*
+    |--------------------------------------------------------------------------
     | Branches included in sync (all others are excluded)
     |--------------------------------------------------------------------------
     */
