@@ -12,6 +12,7 @@ At the start of every new session, before doing anything else, follow this proto
 
 - **This file (`CLAUDE.md`)** — for project orientation
 - **The last 5 entries of `CHANGELOG.md`** — for recent context
+- **`~/BRAIN/wiki/projects/market-funded-crm.md`** — long-term memory (architecture, decisions, debugging notes, cross-session context). Update this file when you learn something important during the session.
 
 ### 2. Read when relevant
 
@@ -66,6 +67,7 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 
 > **Maintenance note:** Add items as they're identified. Remove or strike through when complete.
 
+- **Phase 4.5 priority — equity / challenge state stream.** Triggers 4 (`challenge_passed`) and 5 (`challenge_failed`) are deferred from Phase 4a milestone 4 because the MTR equity/state data isn't synced. These are the *highest-value* triggers in the outreach engine — passed = funded trader celebration, failed = retry opportunity. Henry flagged this as a 4.5 priority on 2026-05-06. Decision still pending: gRPC stream vs nightly REST polling. Plan a focused spike before committing.
 - ~~**Phase C browser smoke test (A–J)**~~ — All 10 checks passed 2026-05-03. Two bugs fixed (bc55f85, 46e1116) and deployed.
 - **Cloudflare MTR whitelist** — production droplet `144.126.225.3` still blocked (`cf-mitigated: challenge`). External blocker. Re-test with `curl -sI` diagnostic when MTR confirms action taken.
 - ~~**Migration bootstrap email — must not hardcode**~~ ✅ Fixed in v1.2.2 — now uses `config('app.admin_email')` / `ADMIN_EMAIL` env var. Production `.env` updated.
@@ -137,63 +139,65 @@ Do NOT skip this protocol even if Werner asks for a quick task. A 30-second orie
 **Phases 1–3 + WhatsApp scaffold** ✅ Complete and deployed.
 **Phase B + Phase C (permission system + enforcement)** ✅ Deployed to production 2026-05-03 as v1.2.0.
 
-**195 tests passing. Deployed commit: `e2629a4` (deployed 2026-05-06).**
+**Phase 4a milestone 1 in flight.** Branch: `feat/phase-4a-m1-henry` (pushed). 218 tests passing locally; not yet deployed to production.
+
+**Last deployed commit:** `e2629a4` (2026-05-06).
 
 **Production state:** DB empty pending Cloudflare MTR API whitelist. No sync data yet. Werner manually bootstrapped `is_super_admin = true`. Migration bootstrap email hardcoding fixed in v1.2.2 — now reads `ADMIN_EMAIL` from `.env` (set to `werner.c@me.com` on production).
 
 **Last session (2026-05-06):**
-- Discovered + fixed Financial Summary inflation bug — `RefreshPersonMetricsJob` had a Cartesian product between transactions and trading_accounts, multiplying SUM aggregates by trading account count. Fix in `e2629a4`. All 29,411 local metrics rows recalculated correctly. Verified against MTR for 5 clients.
-- Smoke test passed for Grace + Derick — all 10 checks. Note: Edit Contact shows `lead_status` only for agents (no `account_manager` reassignment) — admin-only by design. Original spec was wrong.
-- Deployed bundle to production. Production metrics refreshed (no rows yet — DB empty).
-- Server hardening: removed unused ufw 8080 rule (Reverb binds 127.0.0.1 only); deleted `deploy.sh.local-backup`. ufw now: SSH + Nginx only.
+- Drafted full Phase 4a plan at `Docs/PHASE_4A_PLAN.md` (16 sections; AI outreach engine + Henry integration; voice deferred to Phase 4b).
+- Discovered OpenClaw gateway exposes RPC over WebSocket only — Phase 4a uses Telegram Bot API directly for outbound notifications and exposes `/api/henry/*` HTTP routes for Henry's MCP server to call inbound.
+- Built milestone 1 (Henry integration foundation): `TelegramNotifier`, `HenryGatewayClient`, `HenryApiToken` middleware, `HenryController` (4 endpoints), `HenryStatusWidget`, `config/henry.php`, `config/notifications.php`. 23 new tests, 218 passing.
+- Live demo passed: notifier sent `[MFU CRM]` Telegram to Werner — landed on phone. Caught + fixed a Guzzle URL-resolution bug (bot token colon broke `base_uri`).
+- Earlier in the same calendar day: Financial Summary inflation bug found + fixed (`e2629a4`); Grace + Derick smoke test (10-check matrix) passed; ufw + deploy.sh.local-backup cleanup.
 
-**Next:** Phase 4. Werner is reviewing `market-funded-crm-phase-0-brief.md` Phase 4 section before planning.
+**Phase 4a milestone 4 — COMPLETE ✅** (2026-05-07). Autonomous trigger pipeline wired end-to-end. Live demo with a synthetic lead ran the full path through real Anthropic and persisted the Activity row + sent_at timestamp. CRITICAL: every template still ships with `autonomous_enabled = false`. Werner + Henry decide trigger-by-trigger when to flip the switch.
+
+**Phase 4a milestone 3 — COMPLETE ✅** (2026-05-07). Filament UI shipped for the AI outreach engine. Werner / agents can now use the system through the admin: configure templates, click "Draft with AI" on a person, review and approve generated drafts, run bulk-draft on a filtered list, monitor spend + kill switch on the AI Ops page.
+
+**Phase 4a milestone 2 — COMPLETE ✅** (2026-05-07). End-to-end reviewed-mode AI outreach engine works against real Anthropic. Live demo on a real CLIENT generated a real draft, ran the compliance gate, persisted DB rows correctly. Total milestone spend: <1¢.
+
+Major moving parts now in place:
+- `ModelRouter` — per-task model lookup, failover (Sonnet → Haiku → external stub), pricing-based cost compute, daily upsert into `ai_usage_log`
+- `CostCeilingGuard` — soft $300 / hard $500 monthly caps from `ai_usage_log` sum, manual kill switch via cache
+- `DraftService` — person-context-rich prompt → `ai_drafts` (compresses prompt_full for autonomous mode)
+- `ComplianceAgent` — regex blocklist + AI self-check; severity-driven outcome (soft flags pass, hard flags block); fails closed on AI errors
+- `OutreachOrchestrator` — reviewed + bulk paths combining all the above
+- 4 new Eloquent models, 5 new tables, 2 new configs
+- `ANTHROPIC_API_KEY_CRM` env naming to avoid shell-export shadowing
+
+**Next:** Phase 4a milestone 5 — inbound reply auto-response with confidence-based routing. When a client replies to an AI-sent WhatsApp, classify intent + confidence (Haiku), auto-respond when confident on safe intents, escalate to the assigned account manager OR Henry on lower confidence / sensitive intents. Replaces the existing `RouteToAgentListener` stub. The `outreach_inbound_messages` table is already migrated and ready.
 
 ---
 
 ## Next Session — First Task
 
-**Phase C browser smoke test.** Run against local data before any production work.
+**Phase 4a milestone 5 — inbound reply auto-response with confidence-based routing.** This is the LAST milestone of Phase 4a.
 
-### Setup (tinker)
+Milestone 4 shipped 2026-05-07. Autonomous outbound triggers are wired but inactive (every template ships with `autonomous_enabled = false`). 299 tests passing. Now the inbound side.
 
-```bash
-php artisan tinker
-```
-```php
-// 1. Get Susan's ID (create her first at /admin/users — template: Sales Agent (assigned only), branch: Market Funded)
-$id = App\Models\User::where('email','susan@test.local')->value('id');
+Before writing code:
+1. Re-read `Docs/PHASE_4A_PLAN.md` §5.6 (InboundClassifier sketch) and the inbound flow notes in §3
+2. Look at `app/Listeners/WhatsApp/RouteToAgentListener.php` (currently a stub) — that's what milestone 5 replaces
+3. Confirm the `outreach_inbound_messages` table looks right against the design (should already be migrated)
 
-// 2. Assign one Market Funded person to her
-App\Models\Person::where('branch','Market Funded')->first()->tap(function($p) use ($id) {
-    $p->account_manager_user_id = $id;
-    $p->account_manager = 'Susan';
-    $p->save();
-    echo $p->first_name . ' ' . $p->last_name;
-});
-```
+Work to do in roughly this order:
+1. **`InboundClassifier`** in `app/Services/AI/InboundClassifier.php` — calls `inbound_classify` task on Haiku, returns `{intent, confidence}` (0-100). Defensive JSON parsing like ComplianceAgent.
+2. **Replace `RouteToAgentListener`** stub:
+   - On WhatsApp inbound → run classifier
+   - If confidence ≥ threshold AND intent in safe list (`acknowledgment`, `simple_question`): draft auto-reply using a system "auto-reply" prompt → compliance → send (mini autonomous loop)
+   - Else: persist routing decision (`escalated_to_agent` if assigned manager exists, else `escalated_to_henry`) → Telegram alert with the message text + suggested response
+   - Always write `outreach_inbound_messages` row to record the classification + routing
+3. **Filament additions** (small):
+   - Inbound row in AiDraftResource if confidence_threshold inbox auto-reply created a draft
+   - Surface `outreach_inbound_messages` somewhere — maybe a small panel in AI Ops or a new resource. Keep simple.
 
-Then open incognito and log in as Susan.
+Demo end of milestone 5: simulate a WhatsApp reply on a synthetic person → classifier returns high-confidence acknowledgment → auto-reply draft + sent (no-op). Then a low-confidence reply → escalation to Henry via Telegram.
 
-### 10-Check Matrix
+After milestone 5 demo passes: open the PR for `feat/phase-4a-m1-henry` → main. That closes Phase 4a as a single mergeable unit.
 
-| # | Check | Action | Pass condition |
-|---|---|---|---|
-| A | Branch scoping | `/admin/people` | Only Market Funded people visible |
-| B | Assigned-only | `/admin/people` | Only the 1 assigned person visible (assigned_only = true) |
-| C | Financials hidden | Open assigned person's detail | No Financial Summary section, no Deposit Chart, no health score |
-| D | Direct URL 403 | Paste URL of a person from a different branch | 403 Forbidden |
-| E | Edit form mini | "Edit Contact" action on assigned person | Only `lead_status` + `account_manager` fields — not full form |
-| F | No email campaigns | Sidebar nav | "Email Campaigns" absent |
-| G | Expand branches | Admin tab: add QuickTrade to Susan (keep Market Funded ticked). Refresh incognito `/admin/people` | People from both branches visible |
-| H | Revoke all branches | Admin tab: untick ALL branches. Refresh incognito `/admin/people` | Empty state: "You are not assigned to any branches. Contact your administrator." |
-| I | Re-add branch | Admin tab: add Market Funded back. Refresh incognito | Assigned person reappears |
-| J | Toggle financials on | Admin tab: enable `can_view_client_financials` + `can_view_health_scores`. Refresh person detail in incognito | Financial Summary + health score now visible |
-
-**G warning:** Branch list is a full sync — every unticked branch gets revoked. Keep Market Funded ticked when adding QuickTrade.
-
-### Cleanup
-Delete Susan via `/admin/users` after all 10 checks pass.
+Do NOT start coding until Werner explicitly says go.
 
 ---
 

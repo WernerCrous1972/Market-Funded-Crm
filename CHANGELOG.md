@@ -7,7 +7,154 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] — 2026-05-06
+## [Unreleased] — 2026-05-06 (later — Phase 4a milestone 1)
+
+### Added — Phase 4a milestone 1: Henry integration foundation
+
+- **`Docs/PHASE_4A_PLAN.md`** — full 16-section plan for Phase 4a: AI outreach engine + Henry integration. Covers autonomous + reviewed modes, model routing (Sonnet 4.6 / Haiku 4.5 with external fallback), compliance gate, cost ceilings ($300 soft / $500 hard), 5 milestones, risk register. Voice agent deferred to Phase 4b.
+
+- **`App\Services\Notifications\TelegramNotifier`** — direct Telegram Bot API client for outbound CRM → Werner notifications. Uses Henry's bot (`@Werner1971_Bot`) but talks to Telegram directly, not through the OpenClaw gateway. Messages prefixed `[MFU CRM]` so Werner can distinguish CRM alerts from Henry's analytical voice in the same chat. Independent failure mode — CRM can alert even when Henry's gateway is down.
+
+- **`App\Services\Henry\GatewayClient`** — gateway reachability probe (`GET /health`, cached 30s). Used by the dashboard status widget. Phase 4a does not implement the WebSocket RPC client — Henry talks to the CRM via MCP tools instead, which only need our HTTP API.
+
+- **`App\Http\Controllers\Api\HenryController`** + `routes/api.php` — four endpoints under `/api/henry/*`: `health`, `people/search`, `people/{id}` (full summary with metrics + recent transactions), `metrics/book`. Authenticated by `App\Http\Middleware\HenryApiToken` (shared bearer secret).
+
+- **`App\Filament\Widgets\HenryStatusWidget`** — three-stat header widget on the admin dashboard: Henry gateway state, Telegram bot reachability, AI ops phase. Super-admin only via `canView()` gate.
+
+- **Configs:** `config/henry.php` and `config/notifications.php`. Env additions: `HENRY_GATEWAY_URL`, `HENRY_API_TOKEN`, `TELEGRAM_NOTIFY_ENABLED`.
+
+### Fixed — Phase 4a milestone 1
+
+- **Telegram bot token broke Guzzle URL resolution.** Bot tokens contain a colon (e.g. `8556858630:AAHc...`); Guzzle parses that as the `host:port` separator when resolving relative paths against `base_uri`, and cURL rejects with "Port number was not a decimal number between 0 and 65535". Fixed by dropping `base_uri` and passing the full `https://api.telegram.org/...` URL at every call site. Caught during the milestone 1 live demo. (`24faf6c`)
+
+### Verified — Phase 4a milestone 1
+
+- 23 new tests added (14 unit + 9 feature). Full suite: 218 passing (was 195).
+- Live Telegram demo: notifier sent `[MFU CRM] Hello from the CRM! ...` message — landed on Werner's phone successfully.
+- Branch `feat/phase-4a-m1-henry` pushed to GitHub. Henry can read the plan + browse the new code at https://github.com/WernerCrous1972/Market-Funded-Crm/tree/feat/phase-4a-m1-henry.
+
+### Phase 4a milestone 2 — first task ✅ (Henry MCP shim)
+
+- **Built the Node.js MCP shim** at `~/openclaw/mcp-servers/market-funded-crm/index.js`. Reference copy committed to `Docs/mcp-shim/` in the CRM repo. Four tools exposed: `health`, `search_people`, `get_person`, `book_metrics` — each forwards to the matching `/api/henry/*` endpoint with bearer auth. `post_event` and `pause_autonomous` deferred to milestones 3 + 4 since the corresponding CRM endpoints don't exist yet. Stdio transport. Logs go to stderr (stdout is reserved for MCP wire protocol).
+- **Verified end-to-end via `@modelcontextprotocol/inspector --cli`** — all four tools called against live local CRM, real data returned, error path (404 on unknown UUID) surfaces as `isError: true`.
+- **Registered in OpenClaw via `openclaw mcp set market-funded-crm '<json>'`**. Direct edit of `~/.openclaw/openclaw.json` is unsafe — the gateway races with external editors and overwrites within seconds (this is what produced the 60+ "clobbered" backups in late April 2026). Always use the CLI.
+- **Live demo passed:** Werner asked Henry "how is our book looking?" via Telegram → Henry called `book_metrics` → answered with real numbers (29,411 people, MTD $4,309 deposits, 634 dormant 14d+, 543 dormant 30d+). Bidirectional Henry ↔ CRM integration confirmed live.
+
+### Phase 4a milestone 2 — COMPLETE ✅ (2026-05-07)
+
+End-to-end reviewed-mode AI outreach engine works against the real Anthropic API. Live demo on 2026-05-07 produced a real draft for a real CLIENT (Bukelwa Hlasela) with Sonnet 4.6, ran the compliance gate via Haiku 4.5, persisted both `ai_drafts` and `ai_compliance_checks` rows correctly. Total spend across the milestone: <1¢.
+
+**Chunks shipped (4 commits):**
+
+- **Chunk 1** (`68f5265`) — 5 migrations + `config/ai.php` + `config/outreach_compliance.php`
+- **Chunk 2** (`3db365b`) — `ModelRouter` with failover chain, pricing-based cost computation, daily-aggregated `ai_usage_log` upserts; explicit container binding in `AppServiceProvider` to prevent Laravel auto-injecting an unconfigured Guzzle
+- **Chunk 3** (`be6624c`) — `CostCeilingGuard` (soft/hard caps, kill switch, monthly spend cache), `DraftService` (person context → ModelRouter → `ai_drafts`), `ComplianceAgent` (regex blocklist + AI self-check, fails closed on errors); 3 new Eloquent models (`OutreachTemplate`, `AiDraft`, `AiComplianceCheck`)
+- **Chunk 4** (`d6f2f2e`) — `OutreachOrchestrator` (reviewed + bulk paths) + live end-to-end demo
+
+**Live-discovery fixes:**
+
+- **`ANTHROPIC_API_KEY_CRM` shadow workaround** (`0056ee9`) — Werner has a shell-wide `ANTHROPIC_API_KEY` exported in `~/.zshrc` for OpenClaw / Claude Code work. Laravel's `env()` reads shell exports with priority over `.env`, silently shadowing the project key. Switched the variable name to `ANTHROPIC_API_KEY_CRM`; falls back to bare `ANTHROPIC_API_KEY` when not set.
+- **Container auto-injection killed `base_uri`** — Laravel's container auto-resolved the `?GuzzleClient` constructor parameter to a default-config Guzzle (no base_uri, no timeout), making every Anthropic call fail with "No host part in the URL". Fixed via explicit singleton binding in `AppServiceProvider`.
+- **ComplianceAgent severity-driven outcome** — first live run flipped a clean draft to `blocked_compliance` because the AI self-rated `passed=false` while raising only soft flags. Now `passed` derives from FLAG SEVERITY, not the AI's self-rated boolean. Hard flags block; soft flags log and pass.
+
+**Verification:**
+
+- 265 tests passing (was 195 at the start of Phase 4a; +70 across all of milestone 1 + 2)
+- Live demo against real Anthropic API: real draft generated, compliance check landed, DB rows persisted, ai_usage_log incremented
+
+### Phase 4a milestone 3 — COMPLETE ✅ (2026-05-07)
+
+Filament UI for AI outreach. Werner / agents can now use the engine through the admin: configure templates, click "Draft with AI" on a person, review and approve generated drafts, run bulk-draft on a filtered list, monitor spend + kill switch on the AI Ops page.
+
+Shipped (one commit, `fc5f8e1`):
+
+- **`OutreachTemplateResource`** — admin-only CRUD. Trigger event picker (9 events; `challenge_passed` + `challenge_failed` flagged as Phase 4.5). Autonomous toggle defaults false on create; edit page warns prominently (persistent notification) when flipped on. Test-draft action runs the orchestrator without sending.
+- **`AiDraftResource`** — review queue, defaults to `pending_review` filter. Non-admins see only their own / their owned-clients' drafts. Inline edit form locks down everything except `final_text`. Per-row Approve & send action routes through `MessageSender` (no-op while `WA_FEATURE_ENABLED=false`). Reject + bulk reject. Compliance flags rendered with severity colour-coding.
+- **Person page action** — "Draft with AI" button next to Send WhatsApp. Picks an active template, runs orchestrator, redirects to the new draft.
+- **Person list bulk action** — "Draft AI message for selected" runs `OutreachOrchestrator::bulkReviewedDrafts`, reports per-batch summary.
+- **`AiOpsPage`** at `/admin/ai-ops` — super-admin only. State banner (Proceed / PauseAutonomous / PauseAll). Soft + hard cap progress bars. Activity cards (autonomous today, blocked today + month, pending review, autonomous templates count). Spend-by-model table. Header action toggles the kill switch with confirmation.
+
+Verification: 8 new Pest smoke tests (page loads + super-admin gating), full suite 273 passing (was 265).
+
+### Phase 4a milestone 4 — COMPLETE ✅ (2026-05-07)
+
+Autonomous trigger wiring shipped end-to-end. Domain events → listeners → orchestrator → draft → compliance → dispatch → Activity log → Telegram alerts. **Pipeline is "armed but inactive"** — every template ships with `autonomous_enabled = false`. No template fires autonomously until Werner + Henry explicitly flip the toggle, trigger by trigger.
+
+Live demo passed (commit `07f3901`): a synthetic LEAD inserted via Eloquent fired `LeadCreated` → `OnLeadCreated` → real Sonnet draft → real Haiku compliance check (clean, zero flags) → MessageSender no-op (WhatsApp disabled, expected) → Activity row + sent_at timestamp set. Total wire spend <0.01¢.
+
+**Shipped (one commit):**
+
+- **`OutreachOrchestrator::autonomousSend()`** — the missing public method. Two gates (`autonomous_enabled` + cost guard) before any AI call. On compliance pass: dispatches via MessageSender + Activity log (`WHATSAPP_SENT`). On compliance block: leaves status=`blocked_compliance`, logs Activity, fires Telegram alert. On pipeline error: logs + Telegram + bails. Never throws — listeners stay resilient.
+- **3 listener wirings** (NOT ShouldQueue — inline sync to avoid breaking tests that assert `Queue::assertNothingPushed()`):
+  - `OnLeadCreated` ← `LeadCreated` (new event, dispatched by `PersonObserver` on new LEAD inserts)
+  - `OnDepositFirst` ← `LeadConverted` (existing event from LEAD → CLIENT upgrade)
+  - `OnLargeWithdrawal` ← `LargeWithdrawalReceived` (existing event)
+- **`DetectDormantClientsJob`** — daily cron at 09:00 SAST. Iterates `person_metrics` for `dormant_30d` (≥30 days) then `dormant_14d` (14-29 days, explicit max so 30+ doesn't double-fire). 30-day dedup on `(person_id, trigger_event)`. CLIENT-only.
+- **Henry write endpoints**: `POST /api/henry/events` (Henry writes Activity rows) + `POST /api/henry/actions/pause-autonomous` (Henry flips the kill switch with a reason). Both gated by the existing `HenryApiToken` middleware.
+- **MCP shim updated** to 6 tools (added `post_event` + `pause_autonomous`). Reference copy in `Docs/mcp-shim/` synced. Henry picks up the new tools next gateway reconnect.
+- **Telegram alerts** wired into:
+  - Compliance-blocked autonomous send (severity: alert)
+  - Cost soft cap crossed — once per month (severity: warning)
+  - Cost hard cap crossed — once per month (severity: critical)
+  - Autonomous dispatch failures
+
+**Verification:**
+
+- 26 new tests across `OutreachOrchestrator` (autonomousSend gates + paths), Henry write endpoints, `CostCeilingGuard` alert dedup, listener wirings + Person observer firing, `DetectDormantClientsJob` (window logic + dedup + CLIENT-only)
+- Full suite: 299 passing (was 273)
+
+**Out of scope (deferred):**
+
+- `challenge_purchased` + `course_purchased` triggers — need new detection logic in sync code to know when these transaction categories land
+- `challenge_passed` + `challenge_failed` — need MTR equity/state stream not currently synced (Phase 4.5 priority per Henry's review)
+- Inbound auto-response with confidence-based routing (milestone 5)
+
+### Phase 4a milestone 5 — COMPLETE ✅ (2026-05-07)
+
+Inbound reply auto-response with confidence-based routing. Closes Phase 4a as a single mergeable unit.
+
+When a client replies to an AI-sent WhatsApp:
+1. Haiku classifies intent + confidence into one of 7 closed-vocabulary intents (`acknowledgment`, `simple_question`, `complex_question`, `complaint`, `unsubscribe`, `sensitive_request`, `unclear`).
+2. Confidence ≥ 75 AND intent in safe list (`acknowledgment`, `simple_question`) → Sonnet drafts a personalised auto-reply through the existing compliance gate, then dispatches via `MessageSender`.
+3. Otherwise → an intent-specific holding message goes to the client immediately (so they don't sit in silence) AND a Telegram alert routes to the assigned account manager OR to Henry when no manager is set.
+
+The auto-reply path falls through to escalation on three conditions — cost-cap paused, system template missing, compliance blocked the draft — so the client always receives a response. Blocked drafts are linked to the inbound row for audit.
+
+**Shipped (one commit, `73cb103`):**
+
+- **`InboundClassifier`** (`App\Services\Inbound\InboundClassifier`) + `InboundClassification` value object — Haiku call via `ModelRouter::call('inbound_classify')`. Defensive JSON parse strips ``` fences, coerces unknown intents to `unclear`, clamps confidence to [0,100]. Fails closed on every error path with `(unclear, 0)` so the listener escalates.
+- **`OutreachOrchestrator::inboundAutoReply()` + `inboundEscalation()`** — full draft/compliance/dispatch path and pure escalation path. Both write `outreach_inbound_messages` rows.
+- **`RouteToAgentListener`** rebuilt — replaces the original `Log::info` stub. Handles outbound-skip, empty-body-skip, AI-paused fallback (escalates without classifying), then classify → route. NOT `ShouldQueue` to match milestone 4's autonomous listeners.
+- **`OutreachInboundMessage`** model on the already-migrated table.
+- **System inbound auto-reply `OutreachTemplate`** seeded by an idempotent migration. `autonomous_enabled = true` because this template is purpose-built for the inbound pipeline and gated by the classifier rather than the per-template toggle.
+- **`OutreachInboundMessageResource`** — read-only Filament resource at `/admin/outreach-inbound-messages` with intent + confidence + routing badges. Non-admins scoped to their owned-clients' inbound only.
+- **`config/outreach_inbound.php`** — intent vocabulary, safe-list, holding messages, system template name lookup.
+
+**Bug caught + fixed during the live demo:**
+
+- **`RouteToAgentListener` was registered twice.** Once explicitly in `AppServiceProvider::boot()` (carried over from the stub days), once via Laravel 11's typed-handle event auto-discovery. Every inbound logged two Activity rows and produced two Telegram alerts. Removed the explicit registration — auto-discovery now owns it. Re-ran the demo: clean single fire on each path.
+
+**Live demo (against real Anthropic):**
+
+- Path A: "thanks for the welcome message…" → Haiku classified `acknowledgment @ 95%` → Sonnet drafted "Welcome aboard! We're glad to have you with us…" → compliance clean → dispatched (no-op, WA disabled) → Activity row + `outreach_inbound_messages.routing = auto_replied`
+- Path B: "my account was suspended yesterday and I lost three trades…" → Haiku classified `complaint @ 95%` → routed to escalation → default holding message dispatched → `routing = escalated_to_henry` → Telegram alert sent to Werner
+- Total wire spend: <0.1¢ (rounds to 0¢ in `ai_usage_log`).
+
+**Verification:**
+
+- 26 new tests: 12 `InboundClassifier` (parsing, fences, intent normalisation, confidence clamping, error paths, threshold logic) + 6 orchestrator inbound paths + 6 listener routing decisions + 2 Filament smoke. Full suite **325 passing** (was 299 at end of milestone 4).
+
+**Phase 4a is now complete.** All 5 milestones done on `feat/phase-4a-m1-henry`. Ready to open PR → main as one merge unit.
+
+**Out of scope (deferred to Phase 4.5+):**
+
+- `challenge_passed` / `challenge_failed` autonomous outbound triggers — need MTR equity/state stream not currently synced
+- WhatsApp send goes live — gated on `WA_FEATURE_ENABLED=true` once Meta approves the number + first template
+- Confidence-threshold tuning from real data — happens after Werner enables WA sending and we accumulate inbound classifications
+
+---
+
+## [Unreleased] — 2026-05-06 (earlier)
 
 ### Added
 

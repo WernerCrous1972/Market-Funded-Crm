@@ -1,0 +1,19 @@
+{
+  "name": "market-funded-crm-mcp",
+  "version": "0.1.0",
+  "description": "MCP shim that exposes the Market Funded CRM's /api/henry/* endpoints as native tools for Henry (OpenClaw).",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "inspect": "npx @modelcontextprotocol/inspector node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "private": true
+}

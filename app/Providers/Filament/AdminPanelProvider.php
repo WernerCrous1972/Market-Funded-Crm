@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Widgets\GlobalDepositChartWidget;
+use App\Filament\Widgets\HenryStatusWidget;
 use App\Filament\Widgets\RecentActivityWidget;
 use App\Filament\Widgets\StatsOverviewWidget;
 use Filament\Http\Middleware\Authenticate;
@@ -39,9 +40,11 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 \App\Filament\Pages\Dashboard::class,
                 \App\Filament\Pages\MyTasksPage::class,
+                \App\Filament\Pages\AiOpsPage::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
+                HenryStatusWidget::class,
                 StatsOverviewWidget::class,
                 GlobalDepositChartWidget::class,
                 RecentActivityWidget::class,
