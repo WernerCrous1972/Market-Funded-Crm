@@ -22,16 +22,22 @@ use Mockery\MockInterface;
  *   3. Bypass the guard for inbound auto-reply templates (trigger_event=null)
  */
 beforeEach(function () {
-    $this->captured = ['system' => null, 'count' => 0];
+    $this->captured = ['system' => null, 'user' => null, 'count' => 0];
     $captured =& $this->captured;
 
     $router = Mockery::mock(ModelRouter::class);
     $router->shouldReceive('call')
         ->andReturnUsing(function ($task, $system, $messages, $max_tokens = null) use (&$captured) {
             $captured['system'] = $system;
+            $captured['user'] = $messages[0]['content'] ?? null;
             $captured['count']++;
+            // Compliance check expects a JSON verdict. Return a passing one
+            // so the agent can persist a row.
+            $text = $task === 'compliance_check'
+                ? '{"passed": true, "flags": [], "verdict": "ok"}'
+                : 'mock-reply-text';
             return new ModelResponse(
-                text:          'mock-reply-text',
+                text:          $text,
                 model_used:    'claude-haiku-4-5-20251001',
                 tokens_input:  100,
                 tokens_output: 20,
@@ -140,6 +146,54 @@ it('throws persona_unset when branch is outreach-enabled but has no persona_name
     } catch (BranchNotDraftReadyException $e) {
         expect($e->reason)->toBe(BranchNotDraftReadyException::REASON_PERSONA_UNSET);
     }
+});
+
+it('substitutes persona tokens into the per-template compliance_rules before the AI auditor sees them', function () {
+    $branch = Branch::firstOrCreate(
+        ['name' => 'Compliance Token Branch'],
+        [
+            'mtr_branch_uuid'      => 'compliance-token',
+            'is_included'          => true,
+            'persona_name'         => 'Jordan',
+            'customer_facing_name' => 'QuickTrade.world',
+            'outreach_enabled'     => true,
+        ],
+    );
+
+    $person = Person::factory()->create(['branch_id' => $branch->id]);
+    $template = OutreachTemplate::create([
+        'name'               => 'Compliance token test ' . uniqid(),
+        'trigger_event'      => 'lead_created',
+        'channel'            => 'WHATSAPP',
+        'system_prompt'      => 'Sign off as {{ persona_signoff }}',
+        'compliance_rules'   => 'Signoff must be "{{ persona_signoff }}" exactly.',
+        'autonomous_enabled' => false,
+        'is_active'          => true,
+    ]);
+
+    $draft = \App\Models\AiDraft::create([
+        'person_id'    => $person->id,
+        'template_id'  => $template->id,
+        'mode'         => \App\Models\AiDraft::MODE_REVIEWED,
+        'channel'      => 'WHATSAPP',
+        'model_used'   => 'claude-haiku-4-5-20251001',
+        'prompt_hash'  => hash('sha256', 'x'),
+        'draft_text'   => 'Hi there.\n\nJordan from QuickTrade.world',
+        'status'       => \App\Models\AiDraft::STATUS_PENDING_REVIEW,
+        'tokens_input' => 1,
+        'tokens_output'=> 1,
+        'cost_cents'   => 0,
+    ]);
+
+    $compliance = app(\App\Services\AI\ComplianceAgent::class);
+    $compliance->check($draft);
+
+    // The AI auditor receives the per-template compliance_rules via the
+    // user message. Persona tokens must be resolved before the auditor sees
+    // them, otherwise it can't evaluate the rule (and may misclassify a
+    // correct signoff as a hard violation).
+    expect($this->captured['user'])->not->toContain('{{ persona_signoff }}');
+    expect($this->captured['user'])->toContain('Jordan from QuickTrade.world');
 });
 
 it('skips persona guard for inbound auto-reply templates (trigger_event=null)', function () {

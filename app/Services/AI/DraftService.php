@@ -127,11 +127,7 @@ class DraftService
             );
         }
 
-        return strtr($prompt, [
-            '{{ persona_name }}'    => (string) $branch->persona_name,
-            '{{ branch_brand }}'    => (string) ($branch->customer_facing_name ?: $branch->name),
-            '{{ persona_signoff }}' => $signoff,
-        ]);
+        return $branch->applyPersonaTokens($prompt);
     }
 
     /**

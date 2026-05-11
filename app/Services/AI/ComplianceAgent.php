@@ -180,8 +180,19 @@ class ComplianceAgent
         }
 
         if ($draft->template?->compliance_rules) {
+            $rules = (string) $draft->template->compliance_rules;
+
+            // Compliance rules can reference persona tokens (e.g. require the
+            // signoff matches "{{ persona_signoff }}"). Resolve those against
+            // the person's branch so the auditor enforces the right signoff
+            // for THIS branch, not whatever was hard-coded at seed time.
+            $branch = $draft->person?->branchModel;
+            if ($branch && $branch->resolvedSignoff() !== null) {
+                $rules = $branch->applyPersonaTokens($rules);
+            }
+
             $sections[] = "\n## Per-template compliance rules";
-            $sections[] = (string) $draft->template->compliance_rules;
+            $sections[] = $rules;
         }
 
         $sections[] = "\n## Output";

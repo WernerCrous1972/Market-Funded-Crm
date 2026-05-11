@@ -56,6 +56,24 @@ class Branch extends Model
         return "{$this->persona_name} from {$brand}";
     }
 
+    /**
+     * Substitute the persona / brand tokens into any free-form text block.
+     * Used by both the draft pipeline (system_prompt) and the compliance
+     * pipeline (compliance_rules) so the same branch resolves to the same
+     * persona in both places.
+     *
+     * Returns the input unchanged when persona_name is unset — callers
+     * should guard with `resolvedSignoff() !== null` before using.
+     */
+    public function applyPersonaTokens(string $text): string
+    {
+        return strtr($text, [
+            '{{ persona_name }}'    => (string) ($this->persona_name ?? ''),
+            '{{ branch_brand }}'    => (string) ($this->customer_facing_name ?: $this->name),
+            '{{ persona_signoff }}' => (string) ($this->resolvedSignoff() ?? ''),
+        ]);
+    }
+
     // ── Relationships ────────────────────────────────────────────────────────
 
     public function usersWithAccess(): BelongsToMany
