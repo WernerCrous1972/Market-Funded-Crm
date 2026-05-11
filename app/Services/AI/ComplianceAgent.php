@@ -32,10 +32,12 @@ class ComplianceAgent
         private readonly ModelRouter $router,
     ) {}
 
-    public function check(AiDraft $draft, ?string $pipelineHint = null): AiComplianceCheck
+    public function check(AiDraft $draft, ?string $pipelineHint = null, ?string $overrideText = null): AiComplianceCheck
     {
+        $textToCheck = $overrideText ?? $draft->draft_text;
+
         // Layer 1 — hard regex blocklist
-        $hardFlags = $this->runHardBlocklist($draft->draft_text);
+        $hardFlags = $this->runHardBlocklist($textToCheck);
         $hardPassed = empty($hardFlags);
 
         // Layer 2 — AI self-check (only if layer 1 passed; otherwise we
@@ -51,7 +53,7 @@ class ComplianceAgent
         if ($hardPassed) {
             try {
                 [$aiFlags, $aiPassed, $aiVerdict, $tokensIn, $tokensOut, $costCents, $modelUsed] =
-                    $this->runAiSelfCheck($draft, $pipelineHint);
+                    $this->runAiSelfCheck($draft, $pipelineHint, $textToCheck);
             } catch (\Throwable $e) {
                 // If the AI check itself failed (router exhausted, etc.) we
                 // FAIL CLOSED — better to block than send unchecked content.
@@ -131,10 +133,10 @@ class ComplianceAgent
     /**
      * @return array{0: list<array{rule: string, severity: string, excerpt: string}>, 1: bool, 2: string, 3: int, 4: int, 5: int, 6: string}
      */
-    private function runAiSelfCheck(AiDraft $draft, ?string $pipelineHint): array
+    private function runAiSelfCheck(AiDraft $draft, ?string $pipelineHint, ?string $overrideText = null): array
     {
         $system = (string) config('outreach_compliance.agent_system_prompt');
-        $user   = $this->buildAiSelfCheckUserMessage($draft, $pipelineHint);
+        $user   = $this->buildAiSelfCheckUserMessage($draft, $pipelineHint, $overrideText);
 
         $response = $this->router->call(
             task:        'compliance_check',
@@ -156,12 +158,12 @@ class ComplianceAgent
         ];
     }
 
-    private function buildAiSelfCheckUserMessage(AiDraft $draft, ?string $pipelineHint): string
+    private function buildAiSelfCheckUserMessage(AiDraft $draft, ?string $pipelineHint, ?string $overrideText = null): string
     {
         $sections = [];
 
         $sections[] = "## Draft to audit";
-        $sections[] = $draft->draft_text;
+        $sections[] = $overrideText ?? $draft->draft_text;
 
         $sections[] = "\n## Banned patterns (hard fail if any matches — regex level, already passed)";
         $sections[] = json_encode((array) config('outreach_compliance.hard_banned_phrases', []), JSON_UNESCAPED_SLASHES);
