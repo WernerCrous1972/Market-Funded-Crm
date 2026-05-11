@@ -75,7 +75,11 @@ class AiDraftResource extends Resource
 
                 Forms\Components\Textarea::make('final_text')
                     ->label('Final message (edit before approve)')
-                    ->default(fn (AiDraft $record): ?string => $record->final_text ?? $record->draft_text)
+                    ->afterStateHydrated(function (Forms\Components\Textarea $component, ?string $state, ?AiDraft $record): void {
+                        if (blank($state) && $record !== null) {
+                            $component->state($record->draft_text);
+                        }
+                    })
                     ->rows(8)
                     ->required()
                     ->helperText('Original AI draft prefilled here. Edit freely; the original is preserved in draft_text.')
