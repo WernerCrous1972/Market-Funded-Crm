@@ -21,8 +21,17 @@ use App\Models\Person;
  */
 class PersonObserver
 {
+    // Muted during bulk MTR sync runs to avoid 2 extra DB roundtrips per
+    // inserted Person (lookup + template scan) over the WAN tunnel.
+    // MtrSync sets this in a try/finally so it always resets.
+    public static bool $muted = false;
+
     public function created(Person $person): void
     {
+        if (self::$muted) {
+            return;
+        }
+
         if ($person->contact_type === 'LEAD') {
             LeadCreated::dispatch($person);
         }

@@ -11,6 +11,7 @@ use App\Jobs\Sync\SyncLoginTimestampsJob;
 use App\Jobs\Sync\SyncOffersJob;
 use App\Jobs\Sync\SyncOurChallengeBuyersJob;
 use App\Jobs\Sync\SyncWithdrawalsJob;
+use App\Observers\PersonObserver;
 use App\Services\MatchTrader\Client;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
@@ -81,31 +82,42 @@ Usage:
             return self::SUCCESS;
         }
 
-        if ($runAll || $onlyOffers) {
-            $this->runJob('Branches', new SyncBranchesJob($dryRun), $mtr);
-            $this->runJob('Offers',   new SyncOffersJob($dryRun),   $mtr);
-        }
+        // Mute PersonObserver during the bulk sync — every Person insert
+        // would otherwise fire LeadCreated → OnLeadCreated synchronously,
+        // costing 2 extra DB roundtrips per row over the WAN tunnel for a
+        // no-op (all autonomous templates ship disabled). Reset in finally
+        // so a thrown exception can't leave the observer permanently muted.
+        PersonObserver::$muted = true;
 
-        if ($runAll || $onlyAccounts) {
-            $this->runJob('Accounts', new SyncAccountsJob($dryRun, $incremental), $mtr);
-        }
+        try {
+            if ($runAll || $onlyOffers) {
+                $this->runJob('Branches', new SyncBranchesJob($dryRun), $mtr);
+                $this->runJob('Offers',   new SyncOffersJob($dryRun),   $mtr);
+            }
 
-        if ($runAll || $onlyLoginTimestamps) {
-            $this->runJob('Login Timestamps', new SyncLoginTimestampsJob($dryRun), $mtr);
-        }
+            if ($runAll || $onlyAccounts) {
+                $this->runJob('Accounts', new SyncAccountsJob($dryRun, $incremental), $mtr);
+            }
 
-        // Challenge buyers runs after accounts so newly created people are already present.
-        // Brand code in challengeName is the ownership signal — branch is intentionally ignored.
-        if ($runAll || $onlyChallengeBuyers) {
-            $this->runJob('Challenge Buyers', new SyncOurChallengeBuyersJob($dryRun), $mtr);
-        }
+            if ($runAll || $onlyLoginTimestamps) {
+                $this->runJob('Login Timestamps', new SyncLoginTimestampsJob($dryRun), $mtr);
+            }
 
-        if ($runAll || $onlyDeposits) {
-            $this->runJob('Deposits', new SyncDepositsJob($dryRun, $since), $mtr);
-        }
+            // Challenge buyers runs after accounts so newly created people are already present.
+            // Brand code in challengeName is the ownership signal — branch is intentionally ignored.
+            if ($runAll || $onlyChallengeBuyers) {
+                $this->runJob('Challenge Buyers', new SyncOurChallengeBuyersJob($dryRun), $mtr);
+            }
 
-        if ($runAll || $onlyWithdrawals) {
-            $this->runJob('Withdrawals', new SyncWithdrawalsJob($dryRun, $since), $mtr);
+            if ($runAll || $onlyDeposits) {
+                $this->runJob('Deposits', new SyncDepositsJob($dryRun, $since), $mtr);
+            }
+
+            if ($runAll || $onlyWithdrawals) {
+                $this->runJob('Withdrawals', new SyncWithdrawalsJob($dryRun, $since), $mtr);
+            }
+        } finally {
+            PersonObserver::$muted = false;
         }
 
         $duration = $startedAt->diffInSeconds(now());
