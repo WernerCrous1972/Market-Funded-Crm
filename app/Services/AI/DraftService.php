@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
+use App\Exceptions\AI\BranchNotDraftReadyException;
 use App\Models\AiDraft;
 use App\Models\OutreachTemplate;
 use App\Models\Person;
@@ -40,13 +41,14 @@ class DraftService
         ?string $triggeredByEvent = null,
         ?string $triggeredByUserId = null,
     ): AiDraft {
-        $taskName  = $this->taskNameFor($template, $mode);
-        $userMsg   = $this->buildUserMessage($person, $template, $extraContext);
-        $promptRaw = $template->system_prompt . "\n\n--USER--\n" . $userMsg;
+        $taskName     = $this->taskNameFor($template, $mode);
+        $systemPrompt = $this->resolveSystemPrompt($person, $template);
+        $userMsg      = $this->buildUserMessage($person, $template, $extraContext);
+        $promptRaw    = $systemPrompt . "\n\n--USER--\n" . $userMsg;
 
         $response = $this->router->call(
             task:        $taskName,
-            system:      $template->system_prompt,
+            system:      $systemPrompt,
             messages:    [['role' => 'user', 'content' => $userMsg]],
             max_tokens:  1024,
         );
@@ -72,6 +74,63 @@ class DraftService
             'tokens_input'        => $response->tokens_input,
             'tokens_output'       => $response->tokens_output,
             'cost_cents'          => $response->cost_cents,
+        ]);
+    }
+
+    /**
+     * Resolve the template's system_prompt by substituting branch-persona
+     * tokens with the person's branch context. Tokens supported:
+     *
+     *   {{ persona_name }}    → branch.persona_name        (e.g. "Alex")
+     *   {{ branch_brand }}    → branch.customer_facing_name (fallback branch.name)
+     *   {{ persona_signoff }} → branch.resolvedSignoff()    (full line)
+     *
+     * Guards (raise BranchNotDraftReadyException so the orchestrator can
+     * route a Henry alert):
+     *   - person has no branch_id                  → missing_branch
+     *   - branch.outreach_enabled = false          → outreach_disabled
+     *   - branch.persona_name is null              → persona_unset
+     *
+     * The inbound auto-reply template (trigger_event=null) is exempted from
+     * persona guards — that path is system-driven and uses a fixed system
+     * persona, not a branch-scoped one.
+     */
+    private function resolveSystemPrompt(Person $person, OutreachTemplate $template): string
+    {
+        $prompt = (string) $template->system_prompt;
+
+        // Inbound auto-reply path is system-scoped, no persona substitution.
+        if ($template->trigger_event === null) {
+            return $prompt;
+        }
+
+        $branch = $person->branchModel;
+        if (! $branch) {
+            throw new BranchNotDraftReadyException(
+                $person,
+                BranchNotDraftReadyException::REASON_MISSING_BRANCH,
+            );
+        }
+        if (! $branch->outreach_enabled) {
+            throw new BranchNotDraftReadyException(
+                $person,
+                BranchNotDraftReadyException::REASON_OUTREACH_DISABLED,
+                $branch->name,
+            );
+        }
+        $signoff = $branch->resolvedSignoff();
+        if ($signoff === null) {
+            throw new BranchNotDraftReadyException(
+                $person,
+                BranchNotDraftReadyException::REASON_PERSONA_UNSET,
+                $branch->name,
+            );
+        }
+
+        return strtr($prompt, [
+            '{{ persona_name }}'    => (string) $branch->persona_name,
+            '{{ branch_brand }}'    => (string) ($branch->customer_facing_name ?: $branch->name),
+            '{{ persona_signoff }}' => $signoff,
         ]);
     }
 

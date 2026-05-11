@@ -202,9 +202,16 @@ describe('Phase C — permission enforcement', function () {
 
     // ── Person factory ────────────────────────────────────────────────────────
 
-    it('Person factory creates records with nullable branch_id', function () {
+    it('Person factory attaches a draft-ready branch but leaves account manager null', function () {
         $person = Person::factory()->create();
-        expect($person->branch_id)->toBeNull();
+        expect($person->branch_id)->not->toBeNull();
+        expect($person->branchModel)->not->toBeNull();
+        expect($person->branchModel->outreach_enabled)->toBeTrue();
         expect($person->account_manager_user_id)->toBeNull();
+    });
+
+    it('Person factory withoutBranch() state leaves branch_id null', function () {
+        $person = Person::factory()->withoutBranch()->create();
+        expect($person->branch_id)->toBeNull();
     });
 });

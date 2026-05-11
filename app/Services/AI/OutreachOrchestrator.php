@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
+use App\Exceptions\AI\BranchNotDraftReadyException;
 use App\Models\Activity;
 use App\Models\AiDraft;
 use App\Models\OutreachInboundMessage;
@@ -68,13 +69,18 @@ class OutreachOrchestrator
     ): AiDraft {
         $this->ensureCostAllowed();
 
-        $draft = $this->drafts->draft(
-            $person,
-            $template,
-            mode: AiDraft::MODE_REVIEWED,
-            extraContext: $extraContext,
-            triggeredByUserId: $triggeredBy?->id,
-        );
+        try {
+            $draft = $this->drafts->draft(
+                $person,
+                $template,
+                mode: AiDraft::MODE_REVIEWED,
+                extraContext: $extraContext,
+                triggeredByUserId: $triggeredBy?->id,
+            );
+        } catch (BranchNotDraftReadyException $e) {
+            $this->alertBranchNotReady($e, 'reviewedDraft');
+            throw $e;
+        }
 
         $this->compliance->check($draft, pipelineHint: $this->pipelineFor($person));
 
@@ -191,6 +197,9 @@ class OutreachOrchestrator
             );
             $this->compliance->check($draft, pipelineHint: $this->pipelineFor($person));
             $draft->refresh();
+        } catch (BranchNotDraftReadyException $e) {
+            $this->alertBranchNotReady($e, "autonomousSend trigger={$triggerEvent}");
+            return null;
         } catch (\Throwable $e) {
             // Draft pipeline itself errored (router exhausted, DB issue,
             // unparseable verdict). Log + Telegram + bail.
@@ -545,13 +554,18 @@ class OutreachOrchestrator
     ): AiDraft {
         $this->ensureCostAllowed();
 
-        $draft = $this->drafts->draft(
-            $person,
-            $template,
-            mode: AiDraft::MODE_BULK_REVIEWED,
-            extraContext: $extraContext,
-            triggeredByUserId: $triggeredBy?->id,
-        );
+        try {
+            $draft = $this->drafts->draft(
+                $person,
+                $template,
+                mode: AiDraft::MODE_BULK_REVIEWED,
+                extraContext: $extraContext,
+                triggeredByUserId: $triggeredBy?->id,
+            );
+        } catch (BranchNotDraftReadyException $e) {
+            $this->alertBranchNotReady($e, 'bulkReviewedDraft');
+            throw $e;
+        }
 
         $this->compliance->check($draft, pipelineHint: $this->pipelineFor($person));
 
@@ -565,6 +579,32 @@ class OutreachOrchestrator
                 'AI calls are paused: ' . $this->guard->check()->value,
             );
         }
+    }
+
+    /**
+     * Fire a Henry-routed Telegram alert when a draft attempt fails because
+     * the person's branch isn't ready (no branch, outreach disabled, or
+     * persona unset). The data needs Werner's eyes; the call itself is
+     * always swallowed by callers, so this is the only signal that surfaces.
+     */
+    private function alertBranchNotReady(BranchNotDraftReadyException $e, string $callsite): void
+    {
+        Log::warning('Outreach: branch not draft-ready', [
+            'callsite'    => $callsite,
+            'reason'      => $e->reason,
+            'person_id'   => $e->person->id,
+            'person_email'=> $e->person->email,
+            'branch_name' => $e->branchName,
+        ]);
+
+        $this->telegram->notify(
+            "Branch not draft-ready ({$e->reason}).\n" .
+            "Person: {$e->person->email} (id {$e->person->id})\n" .
+            "Branch: " . ($e->branchName ?? '(none assigned)') . "\n" .
+            "Callsite: {$callsite}\n" .
+            "Action: review branch persona / outreach_enabled, then retry.",
+            'alert',
+        );
     }
 
     /**
