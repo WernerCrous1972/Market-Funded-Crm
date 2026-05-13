@@ -45,9 +45,19 @@
         @livewire(\App\Filament\Widgets\Kpi\BranchHealthGridWidget::class, ['filters' => $this->filters], key('branch-grid'))
     @else
         <div class="space-y-6">
-            @foreach ($this->getSalesWidgets() as $widgetClass)
-                @livewire($widgetClass, ['filters' => $this->filters], key($widgetClass))
-            @endforeach
+            {{-- Leaderboard --}}
+            @livewire(\App\Filament\Widgets\Kpi\LeaderboardTable::class, ['filters' => $this->filters], key('leaderboard'))
+
+            {{-- NETT trend line (full width) --}}
+            @livewire(\App\Filament\Widgets\Kpi\PersonalNettTrendCard::class, ['filters' => $this->filters], key('personal-nett-trend'))
+
+            {{-- Per-agent breakdown grid (2×2 on md+) --}}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                @livewire(\App\Filament\Widgets\Kpi\DepositsCountByAgentChart::class, ['filters' => $this->filters], key('dep-count-agent'))
+                @livewire(\App\Filament\Widgets\Kpi\DepositsValueByAgentChart::class, ['filters' => $this->filters], key('dep-value-agent'))
+                @livewire(\App\Filament\Widgets\Kpi\ChallengeSalesCountByAgentChart::class, ['filters' => $this->filters], key('chg-count-agent'))
+                @livewire(\App\Filament\Widgets\Kpi\ChallengeSalesValueByAgentChart::class, ['filters' => $this->filters], key('chg-value-agent'))
+            </div>
         </div>
     @endif
 </x-filament-panels::page>

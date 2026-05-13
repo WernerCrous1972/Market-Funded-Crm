@@ -310,6 +310,59 @@ class KpiQuery
     }
 
     /**
+     * Per-account-manager horizontal-bar breakdown.
+     *
+     * $metric : 'deposits' | 'challenge_sales'
+     * $mode   : 'value' (sum amount_cents) | 'count' (row count)
+     *
+     * Sorted descending by the metric. Only includes users who have at
+     * least one matching transaction in the window — empty agents are
+     * filtered out to keep the chart readable.
+     *
+     * @return Collection<int, object{user_id: string, user_name: string, value: int}>
+     */
+    public function perAgentBreakdown(string $metric, string $mode, KpiPeriod $period): Collection
+    {
+        $category = match ($metric) {
+            'deposits'        => 'EXTERNAL_DEPOSIT',
+            'challenge_sales' => 'CHALLENGE_PURCHASE',
+            default           => throw new \InvalidArgumentException("perAgentBreakdown: unknown metric '{$metric}'"),
+        };
+        if (! in_array($mode, ['value', 'count'], true)) {
+            throw new \InvalidArgumentException("perAgentBreakdown: unknown mode '{$mode}'");
+        }
+
+        $aggregate = $mode === 'count'
+            ? DB::raw('COUNT(*) as value')
+            : DB::raw('SUM(transactions.amount_cents) as value');
+
+        $q = DB::table('transactions')
+            ->join('people', 'people.id', '=', 'transactions.person_id')
+            ->join('users', 'users.id', '=', 'people.account_manager_user_id')
+            ->where('transactions.category', $category)
+            ->where('transactions.status', 'DONE')
+            ->whereNotNull('people.account_manager_user_id')
+            ->select(
+                'users.id as user_id',
+                'users.name as user_name',
+                $aggregate,
+            )
+            ->groupBy('users.id', 'users.name')
+            ->orderByDesc('value');
+
+        if ($start = $period->start()) {
+            $q->where('transactions.occurred_at', '>=', $start);
+        }
+        $q->where('transactions.occurred_at', '<=', $period->end());
+
+        return $q->get()->map(fn ($r) => (object) [
+            'user_id'   => $r->user_id,
+            'user_name' => $r->user_name,
+            'value'     => (int) $r->value,
+        ]);
+    }
+
+    /**
      * Per-account-manager leaderboard rows. One row per user who has
      * any people assigned. When $onlyAgentId is set, restricts to that
      * user's row (used for agent-view scoping).

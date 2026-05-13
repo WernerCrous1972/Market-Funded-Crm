@@ -219,6 +219,68 @@ it('leaderboard with onlyAgentId returns just that agent\'s row', function () {
     expect($rows->first()->user_id)->toBe($this->agentA->id);
 });
 
+it('per-agent breakdown returns deposits value sorted desc, agents with no transactions excluded', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $pA = Person::factory()->create(['account_manager_user_id' => $this->agentA->id]);
+    $pB = Person::factory()->create(['account_manager_user_id' => $this->agentB->id]);
+
+    txn($pA->id, 'EXTERNAL_DEPOSIT', 100_00, '2026-05-05');
+    txn($pA->id, 'EXTERNAL_DEPOSIT',  50_00, '2026-05-06');
+    txn($pB->id, 'EXTERNAL_DEPOSIT', 500_00, '2026-05-07');
+
+    $rows = $this->kpi->perAgentBreakdown('deposits', 'value', KpiPeriod::default());
+
+    expect($rows->count())->toBe(2);
+    expect($rows->first()->user_name)->toBe('Agent B'); // 500_00 — higher
+    expect($rows->first()->value)->toBe(500_00);
+    expect($rows->last()->user_name)->toBe('Agent A');
+    expect($rows->last()->value)->toBe(150_00);
+});
+
+it('per-agent breakdown count mode returns transaction counts not amounts', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $pA = Person::factory()->create(['account_manager_user_id' => $this->agentA->id]);
+    $pB = Person::factory()->create(['account_manager_user_id' => $this->agentB->id]);
+
+    // 3 deposits for A, 1 for B — A wins on count, B wins on value
+    txn($pA->id, 'EXTERNAL_DEPOSIT', 50_00, '2026-05-05');
+    txn($pA->id, 'EXTERNAL_DEPOSIT', 50_00, '2026-05-06');
+    txn($pA->id, 'EXTERNAL_DEPOSIT', 50_00, '2026-05-07');
+    txn($pB->id, 'EXTERNAL_DEPOSIT', 999_00, '2026-05-08');
+
+    $rows = $this->kpi->perAgentBreakdown('deposits', 'count', KpiPeriod::default());
+
+    expect($rows->first()->user_name)->toBe('Agent A');
+    expect($rows->first()->value)->toBe(3);
+    expect($rows->last()->user_name)->toBe('Agent B');
+    expect($rows->last()->value)->toBe(1);
+});
+
+it('per-agent breakdown supports challenge_sales metric', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $p = Person::factory()->create(['account_manager_user_id' => $this->agentA->id]);
+    txn($p->id, 'CHALLENGE_PURCHASE', 200_00, '2026-05-10');
+    txn($p->id, 'CHALLENGE_PURCHASE', 100_00, '2026-05-11');
+    // Unrelated deposit shouldn't leak into challenge sales
+    txn($p->id, 'EXTERNAL_DEPOSIT', 999_00, '2026-05-12');
+
+    $rows = $this->kpi->perAgentBreakdown('challenge_sales', 'value', KpiPeriod::default());
+    expect($rows->first()->value)->toBe(300_00);
+
+    $countRows = $this->kpi->perAgentBreakdown('challenge_sales', 'count', KpiPeriod::default());
+    expect($countRows->first()->value)->toBe(2);
+});
+
+it('per-agent breakdown rejects invalid metric or mode', function () {
+    expect(fn () => $this->kpi->perAgentBreakdown('bogus', 'value', KpiPeriod::default()))
+        ->toThrow(InvalidArgumentException::class);
+    expect(fn () => $this->kpi->perAgentBreakdown('deposits', 'bogus', KpiPeriod::default()))
+        ->toThrow(InvalidArgumentException::class);
+});
+
 it('honours a custom date range', function () {
     $this->travelTo(CarbonImmutable::parse('2026-05-15'));
 
