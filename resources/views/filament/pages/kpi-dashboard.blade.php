@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    {{-- Period selector (driven by HasFiltersForm on the page) --}}
+    {{-- Period selector --}}
     {{ $this->filtersForm }}
 
     {{-- Tab strip --}}
@@ -28,13 +28,21 @@
         </button>
     </div>
 
-    {{-- Tab content --}}
     @if ($activeTab === 'overview')
-        <div class="space-y-6">
-            @foreach ($this->getOverviewWidgets() as $widgetClass)
-                @livewire($widgetClass, ['filters' => $this->filters], key($widgetClass))
-            @endforeach
+        {{-- ── Zone 1: Headline numbers ───────────────────────────────── --}}
+        @livewire(\App\Filament\Widgets\Kpi\MoneyFlowStatsWidget::class, ['filters' => $this->filters], key('mf-stats'))
+        @livewire(\App\Filament\Widgets\Kpi\LeadConversionStatsWidget::class, ['filters' => $this->filters], key('lc-stats'))
+
+        {{-- ── Zone 2: Money flow trend cards (2-up on md+) ───────────── --}}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            @livewire(\App\Filament\Widgets\Kpi\DepositsTrendCard::class, ['filters' => $this->filters], key('dep-trend'))
+            @livewire(\App\Filament\Widgets\Kpi\WithdrawalsTrendCard::class, ['filters' => $this->filters], key('wit-trend'))
+            @livewire(\App\Filament\Widgets\Kpi\NettTrendCard::class, ['filters' => $this->filters], key('net-trend'))
+            @livewire(\App\Filament\Widgets\Kpi\ChallengeSalesTrendCard::class, ['filters' => $this->filters], key('chg-trend'))
         </div>
+
+        {{-- ── Zone 3: Per-branch grid ────────────────────────────────── --}}
+        @livewire(\App\Filament\Widgets\Kpi\BranchHealthGridWidget::class, ['filters' => $this->filters], key('branch-grid'))
     @else
         <div class="space-y-6">
             @foreach ($this->getSalesWidgets() as $widgetClass)

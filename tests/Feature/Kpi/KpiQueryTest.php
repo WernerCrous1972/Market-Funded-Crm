@@ -252,6 +252,70 @@ it('rejects custom periods where end is before start', function () {
     KpiPeriod::custom('2026-04-30', '2026-04-01');
 })->throws(InvalidArgumentException::class);
 
+it('counts transactions independently of value totals', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $p = Person::factory()->create();
+    txn($p->id, 'EXTERNAL_DEPOSIT',  100_00, '2026-05-01');
+    txn($p->id, 'EXTERNAL_DEPOSIT',  200_00, '2026-05-02');
+    txn($p->id, 'EXTERNAL_DEPOSIT',  500_00, '2026-05-03');
+    txn($p->id, 'EXTERNAL_WITHDRAWAL', 50_00, '2026-05-04');
+
+    $period = KpiPeriod::default();
+    $scope  = KpiScope::company();
+
+    expect($this->kpi->depositsCount($period, $scope))->toBe(3);
+    expect($this->kpi->withdrawalsCount($period, $scope))->toBe(1);
+    expect($this->kpi->challengeSalesCount($period, $scope))->toBe(0);
+});
+
+it('builds a daily trend series with one bucket per day in the window', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15 12:00:00'));
+
+    $p = Person::factory()->create();
+    txn($p->id, 'EXTERNAL_DEPOSIT', 100_00, '2026-05-05');
+    txn($p->id, 'EXTERNAL_DEPOSIT', 200_00, '2026-05-10');
+
+    $series = $this->kpi->dailyTrend('deposits', KpiPeriod::default(), KpiScope::company());
+
+    // May 1 through May 15 inclusive = 15 buckets
+    expect($series->count())->toBe(15);
+    // Verify a specific known-good bucket
+    $may10 = $series->firstWhere('label', 'May-10');
+    expect($may10?->value_cents)->toBe(200_00);
+    // Empty days are zero, not null
+    $may2 = $series->firstWhere('label', 'May-2');
+    expect($may2?->value_cents)->toBe(0);
+});
+
+it('branchHealthGrid returns one row per branch with people attached', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $pA = Person::factory()->create([
+        'branch_id'      => $this->branchA->id,
+        'mtr_created_at' => CarbonImmutable::parse('2026-05-05'),
+        'contact_type'   => 'LEAD',
+    ]);
+    $pB = Person::factory()->create([
+        'branch_id'               => $this->branchB->id,
+        'contact_type'            => 'CLIENT',
+        'became_active_client_at' => CarbonImmutable::parse('2026-05-08'),
+    ]);
+    txn($pA->id, 'CHALLENGE_PURCHASE', 100_00, '2026-05-07');
+    txn($pB->id, 'EXTERNAL_DEPOSIT',   500_00, '2026-05-09');
+
+    $rows = $this->kpi->branchHealthGrid(KpiPeriod::default());
+
+    expect($rows->count())->toBe(2);
+    $a = $rows->firstWhere('branch_name', 'Branch A');
+    expect($a->new_leads)->toBe(1);
+    expect($a->challenge_sales_cents)->toBe(100_00);
+
+    $b = $rows->firstWhere('branch_name', 'Branch B');
+    expect($b->new_clients)->toBe(1);
+    expect($b->nett_cents)->toBe(500_00);
+});
+
 it('computes company averages across all agents who have any assigned people', function () {
     $this->travelTo(CarbonImmutable::parse('2026-05-15'));
 

@@ -7,6 +7,7 @@ namespace App\Services\Kpi;
 use App\Models\Person;
 use App\Models\Transaction;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -51,6 +52,51 @@ class KpiQuery
     public function challengeSalesCents(KpiPeriod $period, KpiScope $scope): int
     {
         return $this->sumTransactions('CHALLENGE_PURCHASE', $period, $scope);
+    }
+
+    // ── Counts (the "twin" of every money total) ────────────────────────────
+
+    public function depositsCount(KpiPeriod $period, KpiScope $scope): int
+    {
+        return $this->countTransactions('EXTERNAL_DEPOSIT', $period, $scope);
+    }
+
+    public function withdrawalsCount(KpiPeriod $period, KpiScope $scope): int
+    {
+        return $this->countTransactions('EXTERNAL_WITHDRAWAL', $period, $scope);
+    }
+
+    public function challengeSalesCount(KpiPeriod $period, KpiScope $scope): int
+    {
+        return $this->countTransactions('CHALLENGE_PURCHASE', $period, $scope);
+    }
+
+    /**
+     * People who became active clients in the period (independent of agent
+     * scope — useful for per-branch grids).
+     */
+    public function newClientsCount(KpiPeriod $period, KpiScope $scope): int
+    {
+        return $this->conversionsCount($period, $scope);
+    }
+
+    /**
+     * Leads added in the period (people whose `mtr_created_at` falls inside
+     * the window AND who are currently a LEAD — we don't backdate-include
+     * people who converted later, that's the conversion count's job).
+     */
+    public function newLeadsCount(KpiPeriod $period, KpiScope $scope): int
+    {
+        $q = Person::query()->whereNotNull('mtr_created_at');
+
+        if ($start = $period->start()) {
+            $q->where('mtr_created_at', '>=', $start);
+        }
+        $q->where('mtr_created_at', '<=', $period->end());
+
+        $this->applyScopeToPeople($q, $scope);
+
+        return $q->count();
     }
 
     // ── Lead conversion ─────────────────────────────────────────────────────
@@ -116,6 +162,120 @@ class KpiQuery
         }
 
         return $numerator / $denominator;
+    }
+
+    // ── Time-series for mini trend charts ───────────────────────────────────
+
+    /**
+     * Daily series of a money metric across the period.
+     *
+     * $metric: 'deposits' | 'withdrawals' | 'nett' | 'challenge_sales'
+     *
+     * Returns an ordered Collection of {label, value_cents}. Labels are
+     * 'M-D' for short windows (≤ 30d) and 'MMM-D' for longer ones. Empty
+     * days are filled with zero — no gaps in the chart.
+     *
+     * For "all_time" we cap the series at the last 90 days, otherwise the
+     * chart becomes an unreadable forest.
+     */
+    public function dailyTrend(string $metric, KpiPeriod $period, KpiScope $scope): Collection
+    {
+        $start = $period->start() ?? CarbonImmutable::now()->subDays(90);
+        $end   = $period->end();
+
+        $bucketCol = DB::raw("DATE(occurred_at)");
+        $depRows   = $this->dailyTrendRows('EXTERNAL_DEPOSIT', $start, $end, $scope);
+        $witRows   = $this->dailyTrendRows('EXTERNAL_WITHDRAWAL', $start, $end, $scope);
+        $chgRows   = $this->dailyTrendRows('CHALLENGE_PURCHASE', $start, $end, $scope);
+
+        // Walk every day in [start, end] so the line is continuous.
+        $period_d = \Carbon\CarbonPeriod::create($start, '1 day', $end);
+        $rows = collect();
+        foreach ($period_d as $d) {
+            $key = $d->toDateString();
+            $dep = (int) ($depRows[$key] ?? 0);
+            $wit = (int) ($witRows[$key] ?? 0);
+            $chg = (int) ($chgRows[$key] ?? 0);
+
+            $value = match ($metric) {
+                'deposits'        => $dep,
+                'withdrawals'     => $wit,
+                'nett'            => $dep - $wit,
+                'challenge_sales' => $chg,
+                default           => 0,
+            };
+
+            $rows->push((object) [
+                'label'       => $d->format($end->diffInDays($start) > 30 ? 'M j' : 'M-j'),
+                'value_cents' => $value,
+            ]);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array<string, int>  date string => sum cents
+     */
+    private function dailyTrendRows(string $category, \DateTimeInterface $start, \DateTimeInterface $end, KpiScope $scope): array
+    {
+        $q = Transaction::query()
+            ->where('category', $category)
+            ->where('status', 'DONE')
+            ->where('occurred_at', '>=', $start)
+            ->where('occurred_at', '<=', $end);
+
+        $this->applyScopeToTransactions($q, $scope);
+
+        return $q
+            ->selectRaw('DATE(occurred_at) AS bucket, SUM(amount_cents) AS total')
+            ->groupBy('bucket')
+            ->pluck('total', 'bucket')
+            ->map(fn ($v) => (int) $v)
+            ->all();
+    }
+
+    // ── Per-branch tile data ────────────────────────────────────────────────
+
+    /**
+     * One row per active branch (outreach_enabled=true OR has any people
+     * with this branch_id — we include real-data branches even when
+     * outreach hasn't been turned on yet, to avoid hiding live numbers).
+     *
+     * Each row carries: new_leads / new_clients / challenge_sales_cents /
+     * nett_cents — exactly what a per-branch card tile needs.
+     *
+     * @return Collection<int, object{
+     *   branch_id: string,
+     *   branch_name: string,
+     *   new_leads: int,
+     *   new_clients: int,
+     *   challenge_sales_cents: int,
+     *   nett_cents: int
+     * }>
+     */
+    public function branchHealthGrid(KpiPeriod $period): Collection
+    {
+        $branches = \App\Models\Branch::query()
+            ->whereExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('people')
+                    ->whereColumn('people.branch_id', 'branches.id');
+            })
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return $branches->map(function ($b) use ($period) {
+            $scope = KpiScope::branch($b->id);
+            return (object) [
+                'branch_id'             => $b->id,
+                'branch_name'           => $b->name,
+                'new_leads'             => $this->newLeadsCount($period, $scope),
+                'new_clients'           => $this->newClientsCount($period, $scope),
+                'challenge_sales_cents' => $this->challengeSalesCents($period, $scope),
+                'nett_cents'            => $this->nettDepositsCents($period, $scope),
+            ];
+        });
     }
 
     // ── Breakdowns ──────────────────────────────────────────────────────────
@@ -228,6 +388,34 @@ class KpiQuery
     }
 
     // ── Internal helpers ────────────────────────────────────────────────────
+
+    private function countTransactions(string $category, KpiPeriod $period, KpiScope $scope): int
+    {
+        $compute = function () use ($category, $period, $scope) {
+            $q = Transaction::query()
+                ->where('category', $category)
+                ->where('status', 'DONE');
+
+            if ($start = $period->start()) {
+                $q->where('occurred_at', '>=', $start);
+            }
+            $q->where('occurred_at', '<=', $period->end());
+
+            $this->applyScopeToTransactions($q, $scope);
+
+            return (int) $q->count();
+        };
+
+        if ($period->shouldCache()) {
+            return Cache::remember(
+                'kpi:count:' . $category . ':' . $scope->type . ':' . ($scope->id ?? 'co') . ':' . $period->cacheKey(),
+                3600,
+                $compute,
+            );
+        }
+
+        return $compute();
+    }
 
     private function sumTransactions(string $category, KpiPeriod $period, KpiScope $scope): int
     {

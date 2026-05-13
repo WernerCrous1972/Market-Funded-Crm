@@ -98,6 +98,13 @@ class KpiDashboardPage extends Page
 
     /**
      * Widgets shown on the Management Overview tab.
+     *
+     * Layout (top → bottom):
+     *   1. Headline numbers — money flow stat tiles + lead conversion tiles
+     *   2. Money flow trend cards — 2×2 grid (deposits/withdrawals/NETT/challenge)
+     *      each card has count + value + line chart over the period
+     *   3. Per-branch tile grid — one card per branch with activity
+     *
      * @return array<int, class-string>
      */
     public function getOverviewWidgets(): array
@@ -105,10 +112,11 @@ class KpiDashboardPage extends Page
         return [
             \App\Filament\Widgets\Kpi\MoneyFlowStatsWidget::class,
             \App\Filament\Widgets\Kpi\LeadConversionStatsWidget::class,
-            \App\Filament\Widgets\Kpi\DepositsByBranchChart::class,
-            \App\Filament\Widgets\Kpi\WithdrawalsByBranchChart::class,
-            \App\Filament\Widgets\Kpi\NettByBranchChart::class,
-            \App\Filament\Widgets\Kpi\ChallengeSalesByBranchChart::class,
+            \App\Filament\Widgets\Kpi\DepositsTrendCard::class,
+            \App\Filament\Widgets\Kpi\WithdrawalsTrendCard::class,
+            \App\Filament\Widgets\Kpi\NettTrendCard::class,
+            \App\Filament\Widgets\Kpi\ChallengeSalesTrendCard::class,
+            \App\Filament\Widgets\Kpi\BranchHealthGridWidget::class,
         ];
     }
 
