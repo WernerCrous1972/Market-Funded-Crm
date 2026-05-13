@@ -128,6 +128,7 @@ class KpiDashboardPage extends Page
     {
         return [
             \App\Filament\Widgets\Kpi\LeaderboardTable::class,
+            \App\Filament\Widgets\Kpi\PersonalNettTrendCard::class,
         ];
     }
 }
