@@ -336,12 +336,19 @@ class KpiQuery
             ? DB::raw('COUNT(*) as value')
             : DB::raw('SUM(transactions.amount_cents) as value');
 
+        // Attribution is HISTORICAL: prefer the per-transaction
+        // account_manager_user_id; fall back to the person's current owner
+        // for legacy rows that haven't been backfilled yet.
+        $attributedTo = DB::raw(
+            'COALESCE(transactions.account_manager_user_id, people.account_manager_user_id)'
+        );
+
         $q = DB::table('transactions')
             ->join('people', 'people.id', '=', 'transactions.person_id')
-            ->join('users', 'users.id', '=', 'people.account_manager_user_id')
+            ->join('users', 'users.id', '=', $attributedTo)
             ->where('transactions.category', $category)
             ->where('transactions.status', 'DONE')
-            ->whereNotNull('people.account_manager_user_id')
+            ->whereRaw('COALESCE(transactions.account_manager_user_id, people.account_manager_user_id) IS NOT NULL')
             ->select(
                 'users.id as user_id',
                 'users.name as user_name',
@@ -534,7 +541,18 @@ class KpiQuery
         match ($scope->type) {
             'company' => null,
             'branch'  => $q->whereHas('person', fn ($p) => $p->where('branch_id', $scope->id)),
-            'agent'   => $q->whereHas('person', fn ($p) => $p->where('account_manager_user_id', $scope->id)),
+            // Agent attribution is HISTORICAL: each transaction carries the
+            // account_manager_user_id as it was at sync time. For rows synced
+            // before the per-transaction column existed (NULL), we fall back
+            // to the person's current owner so historical data isn't lost.
+            // Once the backfill runs, this NULL branch becomes a no-op.
+            'agent'   => $q->where(function ($w) use ($scope) {
+                $w->where('account_manager_user_id', $scope->id)
+                  ->orWhere(function ($legacy) use ($scope) {
+                      $legacy->whereNull('account_manager_user_id')
+                             ->whereHas('person', fn ($p) => $p->where('account_manager_user_id', $scope->id));
+                  });
+            }),
         };
     }
 

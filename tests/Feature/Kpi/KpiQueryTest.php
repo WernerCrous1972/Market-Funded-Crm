@@ -219,6 +219,89 @@ it('leaderboard with onlyAgentId returns just that agent\'s row', function () {
     expect($rows->first()->user_id)->toBe($this->agentA->id);
 });
 
+it('historical attribution: transaction.account_manager_user_id wins over person.account_manager_user_id', function () {
+    // Scenario: a person is currently owned by Agent B (reassignment),
+    // but the deposit was made when Agent A owned them. The deposit
+    // should land in Agent A's totals — not Agent B's.
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $p = Person::factory()->create([
+        'account_manager_user_id' => $this->agentB->id,  // CURRENT owner
+    ]);
+
+    txn($p->id, 'EXTERNAL_DEPOSIT', 100_00, '2026-05-10')
+        ->update(['account_manager_user_id' => $this->agentA->id]);  // historical
+
+    $period = KpiPeriod::default();
+
+    // Agent A (historical owner) gets the credit
+    expect($this->kpi->depositsTotalCents($period, KpiScope::agent($this->agentA->id)))->toBe(100_00);
+    // Agent B (current owner) gets nothing
+    expect($this->kpi->depositsTotalCents($period, KpiScope::agent($this->agentB->id)))->toBe(0);
+});
+
+it('historical attribution: NULL on transaction falls back to current owner (legacy data)', function () {
+    // Older transactions synced before the column existed have NULL
+    // account_manager_user_id. They must still attribute correctly via
+    // people.account_manager_user_id until the backfill runs.
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $p = Person::factory()->create(['account_manager_user_id' => $this->agentA->id]);
+
+    txn($p->id, 'EXTERNAL_DEPOSIT', 200_00, '2026-05-10');
+    // Note: txn() does NOT populate account_manager_user_id — that's
+    // exactly the legacy NULL case we're testing.
+
+    expect($this->kpi->depositsTotalCents(KpiPeriod::default(), KpiScope::agent($this->agentA->id)))
+        ->toBe(200_00);
+});
+
+it('historical attribution: same person with two managers split across the period', function () {
+    // Re-creates the Ntahli situation from production: same email,
+    // multiple deposits, manager reassignment mid-period.
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $p = Person::factory()->create([
+        'account_manager_user_id' => $this->agentB->id,  // currently owned by B
+    ]);
+
+    // First two deposits while owned by A
+    txn($p->id, 'EXTERNAL_DEPOSIT', 50_00, '2026-05-04')
+        ->update(['account_manager_user_id' => $this->agentA->id]);
+    txn($p->id, 'EXTERNAL_DEPOSIT', 30_00, '2026-05-06')
+        ->update(['account_manager_user_id' => $this->agentA->id]);
+
+    // Then reassigned. Two more deposits under B.
+    txn($p->id, 'EXTERNAL_DEPOSIT', 10_00, '2026-05-08')
+        ->update(['account_manager_user_id' => $this->agentB->id]);
+    txn($p->id, 'EXTERNAL_DEPOSIT', 20_00, '2026-05-10')
+        ->update(['account_manager_user_id' => $this->agentB->id]);
+
+    $period = KpiPeriod::default();
+
+    expect($this->kpi->depositsTotalCents($period, KpiScope::agent($this->agentA->id)))->toBe(80_00);
+    expect($this->kpi->depositsTotalCents($period, KpiScope::agent($this->agentB->id)))->toBe(30_00);
+    // Company total is the sum
+    expect($this->kpi->depositsTotalCents($period, KpiScope::company()))->toBe(110_00);
+});
+
+it('historical attribution: per-agent breakdown uses transaction column when populated', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-15'));
+
+    $p = Person::factory()->create([
+        'account_manager_user_id' => $this->agentB->id,  // current
+    ]);
+
+    txn($p->id, 'EXTERNAL_DEPOSIT', 100_00, '2026-05-10')
+        ->update(['account_manager_user_id' => $this->agentA->id]);
+
+    $rows = $this->kpi->perAgentBreakdown('deposits', 'value', KpiPeriod::default());
+
+    expect($rows->count())->toBe(1);
+    expect($rows->first()->user_name)->toBe('Agent A');  // historical wins
+    expect($rows->first()->value)->toBe(100_00);
+});
+
 it('per-agent breakdown returns deposits value sorted desc, agents with no transactions excluded', function () {
     $this->travelTo(CarbonImmutable::parse('2026-05-15'));
 

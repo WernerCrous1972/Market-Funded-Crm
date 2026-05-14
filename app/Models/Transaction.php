@@ -23,6 +23,7 @@ class Transaction extends Model
 
     protected $fillable = [
         'person_id',
+        'account_manager_user_id',
         'trading_account_id',
         'mtr_transaction_uuid',
         'type',
@@ -52,6 +53,11 @@ class Transaction extends Model
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);
+    }
+
+    public function accountManager(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'account_manager_user_id');
     }
 
     public function tradingAccount(): BelongsTo

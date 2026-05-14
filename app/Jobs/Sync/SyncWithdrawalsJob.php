@@ -53,6 +53,11 @@ class SyncWithdrawalsJob implements ShouldQueue
         $propUuids   = Offer::where('is_prop_challenge', true)->pluck('mtr_offer_uuid')->toArray();
         Classifier::setPropOfferUuids($propUuids);
 
+        // Name → User ID lookup for per-transaction account_manager attribution.
+        // See SyncDepositsJob for the rationale — MTR snapshots manager-at-time
+        // historically; we capture it per transaction row.
+        $userLookup = \App\Models\User::pluck('id', 'name')->all();
+
         $stats = [
             'total'   => 0,
             'skipped' => 0,
@@ -166,17 +171,25 @@ class SyncWithdrawalsJob implements ShouldQueue
                     offerName:   $offer?->name,
                 );
 
+                // Per-transaction historical account manager (see deposits sync).
+                $txMgrName = (function ($am) {
+                    if (is_array($am)) return $am['name'] ?? null;
+                    return $am ?: null;
+                })($accountInfo['accountManager'] ?? null);
+                $txMgrUserId = $txMgrName ? ($userLookup[$txMgrName] ?? null) : null;
+
                 $transaction = Transaction::create([
-                    'person_id'            => $person->id,
-                    'trading_account_id'   => $tradingAcc?->id,
-                    'mtr_transaction_uuid' => $mtrUuid,
-                    'type'                 => 'WITHDRAWAL',
-                    'amount_cents'         => $amountCents,
-                    'currency'             => strtoupper($financials['currency'] ?? 'USD'),
-                    'status'               => 'DONE',
-                    'gateway_name'         => $gatewayInfo['name'] ?? null,
-                    'offer_name'           => $offer?->name,
-                    'remark'               => $raw['remark'] ?? null,
+                    'person_id'              => $person->id,
+                    'account_manager_user_id'=> $txMgrUserId,
+                    'trading_account_id'     => $tradingAcc?->id,
+                    'mtr_transaction_uuid'   => $mtrUuid,
+                    'type'                   => 'WITHDRAWAL',
+                    'amount_cents'           => $amountCents,
+                    'currency'               => strtoupper($financials['currency'] ?? 'USD'),
+                    'status'                 => 'DONE',
+                    'gateway_name'           => $gatewayInfo['name'] ?? null,
+                    'offer_name'             => $offer?->name,
+                    'remark'                 => $raw['remark'] ?? null,
                     'occurred_at'          => \Carbon\Carbon::parse($raw['created'] ?? now())->toIso8601String(),
                     'synced_at'            => now()->toIso8601String(),
                     'pipeline'             => $pipeline,
